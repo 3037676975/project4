@@ -1,0 +1,44 @@
+services:
+  document-parser:
+    build:
+      context: ./services/document-parser
+    environment:
+      MAX_CONCURRENCY: "1"
+      MAX_FILE_BYTES: "26214400"
+      PARSE_TIMEOUT_SECONDS: "300"
+      PARSER_API_KEY: ${PARSER_API_KEY:?set PARSER_API_KEY}
+    ports:
+      - "127.0.0.1:8001:8001"
+    restart: unless-stopped
+    volumes:
+      - docling-cache:/root/.cache
+
+  embedding:
+    image: michaelf34/infinity:latest-cpu
+    command:
+      - v2
+      - --model-id
+      - BAAI/bge-m3
+      - --served-model-name
+      - BAAI/bge-m3
+      - --engine
+      - torch
+      - --port
+      - "7997"
+      - --url-prefix
+      - /v1
+      - --api-key
+      - ${INFINITY_API_KEY:?set INFINITY_API_KEY}
+    environment:
+      HF_HOME: /app/.cache
+      INFINITY_ANONYMOUS_USAGE_STATS: "0"
+    ports:
+      - "127.0.0.1:7997:7997"
+    restart: unless-stopped
+    shm_size: 2gb
+    volumes:
+      - infinity-cache:/app/.cache
+
+volumes:
+  docling-cache:
+  infinity-cache:
