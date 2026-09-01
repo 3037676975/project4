@@ -1,0 +1,32 @@
+name: Unzip source archive
+
+on:
+  push:
+    paths:
+      - '.github/workflows/unzip-source.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract source archive
+        run: |
+          unzip -o KnowFlow-v24-full-source.zip -d .
+
+      - name: Commit extracted source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No extracted changes to commit."
+          else
+            git commit -m "Extract KnowFlow v24 source"
+            git push
+          fi
