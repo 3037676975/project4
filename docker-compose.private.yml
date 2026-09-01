@@ -29,7 +29,7 @@ services:
       EMAIL_CODE_RESEND_SECONDS: ${EMAIL_CODE_RESEND_SECONDS:-60}
       EMAIL_CODE_MAX_ATTEMPTS: ${EMAIL_CODE_MAX_ATTEMPTS:-5}
       EMAIL_CODE_LENGTH: ${EMAIL_CODE_LENGTH:-6}
-      APP_BASE_URL: http://localhost:3000
+      APP_BASE_URL: http://43.172.76.33:28440
       PAYMENT_MODE: sandbox
       PAYMENT_CALLBACK_SECRET: ${PAYMENT_CALLBACK_SECRET:?run scripts/init-private first}
       OPERATIONS_SWEEP_SECRET: ${OPERATIONS_SWEEP_SECRET:?run scripts/init-private first}
@@ -38,7 +38,7 @@ services:
       QDRANT_COLLECTION: knowflow_chunks
       QDRANT_VECTOR_SIZE: "1024"
     ports:
-      - "3000:3000"
+      - "28440:3000"
     depends_on:
       qdrant:
         condition: service_healthy
