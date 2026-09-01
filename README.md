@@ -1,84 +1,67 @@
-# 🤖 AI Customer Service SaaS
+# 🤖 AI-CS Enterprise
 
-企业级 AI 智能客服 + RAG 知识库 + Agent 智能体平台。
+企业级 AI 智能客服 SaaS 平台。
 
-> Vue3 + Spring Boot 3 + LangChain4j + RAG + MCP + Docker
+基于 KnowFlow-v24 核心项目，并融合 AI-CS 智能客服系统能力。
 
-## 📖 项目介绍
+## ✨ 核心能力
 
-AI Customer Service SaaS 是一个面向企业的智能客服系统，通过大语言模型、RAG知识库增强、AI Agent 和 MCP 工具调用，实现智能问答、自动工单、业务系统连接和企业级 SaaS 管理。
+- 🤖 AI 智能客服
+- 📚 RAG 企业知识库问答
+- 🧠 Agent 智能体工作流
+- 🔌 MCP 工具调用
+- 🎫 智能工单系统
+- 🏢 多租户 SaaS 架构
+- 🐳 Docker 一键部署
 
-## ✨ 核心功能
-
-- 🤖 AI智能客服：多轮对话、上下文理解、知识增强回答
-- 📚 RAG企业知识库：PDF/Word/TXT文档解析、向量检索
-- 🎫 智能工单系统：AI分类、自动创建、流程管理
-- 🧠 AI Agent：调用工具完成业务任务
-- 🔌 MCP工具调用：连接订单、用户、工单等系统
-- 🏢 多租户SaaS：企业数据隔离与权限管理
-
-## 🛠 技术栈
-
-### Frontend
-- Vue3
-- TypeScript
-- Element Plus
-- ECharts
-
-### Backend
-- Spring Boot 3
-- MyBatis Plus
-- Spring Security
-- JWT
+## 🛠 技术方向
 
 ### AI
-- LangChain4j
+- LangChain
 - RAG
 - Embedding
-- PGVector
+- Vector Database
+- ReRank
 - Agent
 - MCP
 
-### Deployment
-- Docker
-- Docker Compose
-- Nginx
-- PostgreSQL
-- Redis
+### Platform
+- SaaS Multi Tenant
+- RBAC权限管理
+- Knowledge Base
+- Customer Service Workspace
 
-## 🏗 项目结构
+## 🏗 目标项目结构
 
 ```text
-b-ai-
-├── web                 # Vue3前端
-├── server              # SpringBoot后端
-├── ai-service          # RAG + Agent服务
-├── mcp-server          # MCP工具服务
-├── database            # 数据库脚本
-├── docs                # 项目文档
-└── docker-compose.yml
+project4
+├── app                 # KnowFlow-v24 主应用
+├── ai-service          # AI服务层
+├── agent               # Agent智能体
+├── mcp                 # MCP工具中心
+├── customer-service    # 客服工作台
+├── ticket              # 工单系统
+├── docker              # 部署配置
+└── docs                # 项目文档
 ```
 
 ## 🚀 Roadmap
 
-- [x] AI客服架构设计
-- [x] RAG知识库设计
-- [x] 工单系统设计
-- [x] Agent智能体设计
-- [ ] MCP工具实现
-- [ ] 多租户实现
-- [ ] Docker一键部署
-- [ ] 商业套餐系统
+- [x] AI客服产品规划
+- [x] RAG架构设计
+- [x] Agent架构设计
+- [x] MCP规划
+- [ ] KnowFlow-v24完整迁移
+- [ ] 客服模块融合
+- [ ] 自动化部署
 
 ## 📌 项目定位
 
-适合作为：
+用于展示企业级 AI 应用开发能力：
 
-- AI应用开发项目
-- Java后端高级项目
+- AI应用工程
 - AI产品经理作品集
-- 企业级SaaS产品原型
+- 大模型应用项目
+- SaaS产品原型
 
-## License
-
-MIT
+License: MIT
