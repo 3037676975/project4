@@ -1,0 +1,77 @@
+name: Validate global model inheritance and GB storage
+on:
+  push:
+    branches: [fix-global-model-plan-storage-20260903]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix-global-model-plan-storage-20260903
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - name: Apply fixes
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          // 1) Platform plan storage: accept GB as the UI/API unit and convert server-side.
+          const platformRoute = 'app/api/platform/route.ts';
+          let route = fs.readFileSync(platformRoute, 'utf8');
+          const oldPlanHeader = `      const name = typeof body.name === "string" ? body.name.trim().slice(0, 40) : ""; if (!name) return Response.json({ error: "套餐名称不能为空。" }, { status: 400 });\n      const fields = {\n        monthlyPriceCents: integer(body.monthlyPriceCents, 0, 100_000_000), requestQuota: integer(body.requestQuota, 1, 100_000_000),\n        tokenQuota: integer(body.tokenQuota, 1_000, 2_000_000_000), storageQuotaBytes: integer(body.storageQuotaBytes, 1_048_576, 1_099_511_627_776),`;
+          const newPlanHeader = `      const name = typeof body.name === "string" ? body.name.trim().slice(0, 40) : ""; if (!name) return Response.json({ error: "套餐名称不能为空。" }, { status: 400 });\n      const storageQuotaGb = body.storageQuotaGb === undefined ? null : Number(body.storageQuotaGb);\n      if (storageQuotaGb !== null && (!Number.isFinite(storageQuotaGb) || storageQuotaGb < 0.1 || storageQuotaGb > 1024)) return Response.json({ error: "存储额度请输入 0.1 到 1024 GB。" }, { status: 400 });\n      const storageQuotaBytes = storageQuotaGb === null ? integer(body.storageQuotaBytes, 104_857_600, 1_099_511_627_776) : Math.round(storageQuotaGb * 1_073_741_824);\n      const fields = {\n        monthlyPriceCents: integer(body.monthlyPriceCents, 0, 100_000_000), requestQuota: integer(body.requestQuota, 1, 100_000_000),\n        tokenQuota: integer(body.tokenQuota, 1_000, 2_000_000_000), storageQuotaBytes,`;
+          if (!route.includes(oldPlanHeader)) throw new Error('platform plan storage marker not found');
+          route = route.replace(oldPlanHeader, newPlanHeader);
+          fs.writeFileSync(platformRoute, route);
+
+          // 2) Platform plan editor: send GB directly; fix invalid min/step combination.
+          const dashPath = 'app/platform/platform-dashboard.tsx';
+          let dash = fs.readFileSync(dashPath, 'utf8');
+          const oldPayload = `requestQuota: editPlan.request_quota, tokenQuota: editPlan.token_quota, storageQuotaBytes: editPlan.storage_quota_bytes,`;
+          const newPayload = `requestQuota: editPlan.request_quota, tokenQuota: editPlan.token_quota, storageQuotaGb: Number((editPlan.storage_quota_bytes / 1073741824).toFixed(3)),`;
+          if (!dash.includes(oldPayload)) throw new Error('plan payload marker not found');
+          dash = dash.replace(oldPayload, newPayload);
+          const oldInput = `<div><label>存储（GB）</label><input type="number" min="0.001" step="0.1" value={(editPlan.storage_quota_bytes / 1073741824).toFixed(1)} onChange={(event) => setEditPlan({ ...editPlan, storage_quota_bytes: Math.round(Number(event.target.value) * 1073741824) })}/></div>`;
+          const newInput = `<div><label>存储（GB）</label><input type="number" min="0.1" max="1024" step="0.1" value={(editPlan.storage_quota_bytes / 1073741824).toFixed(1)} onChange={(event) => setEditPlan({ ...editPlan, storage_quota_bytes: Math.round(Number(event.target.value) * 1073741824) })}/></div>`;
+          if (!dash.includes(oldInput)) throw new Error('plan GB input marker not found');
+          dash = dash.replace(oldInput, newInput);
+          fs.writeFileSync(dashPath, dash);
+
+          // 3) Tenant knowledge: platform model config is inherited; auto-heal documents created before Embedding was configured.
+          const knowledgePath = 'app/api/knowledge/route.ts';
+          let knowledge = fs.readFileSync(knowledgePath, 'utf8');
+          const importMarker = `import { indexDocument, parseDocumentWithConfiguredOcr } from "../../../lib/rag";`;
+          if (!knowledge.includes(importMarker)) throw new Error('knowledge import marker not found');
+          knowledge = knowledge.replace(importMarker, `${importMarker}\nimport { loadProviderConfig } from "../../../lib/provider";`);
+          const getMarker = `    await ensureDefaultCategory(context.tenantId, kb.id);\n    const result = await DB.prepare(`;
+          const autoHeal = `    await ensureDefaultCategory(context.tenantId, kb.id);\n    const inheritedEmbedding = await loadProviderConfig(context.tenantId, "embedding").catch(() => null);\n    if (inheritedEmbedding) {\n      const pending = await DB.prepare(\`SELECT id, category_id, extracted_text FROM knowledge_documents\n        WHERE tenant_id = ? AND knowledge_base_id = ? AND status = 'ready' AND index_status = 'needs_embedding' AND LENGTH(extracted_text) >= 10\n        ORDER BY updated_at ASC LIMIT 2\`).bind(context.tenantId, kb.id).all<{ id: string; category_id: string | null; extracted_text: string }>();\n      for (const row of pending.results) {\n        try {\n          await DB.prepare("UPDATE knowledge_documents SET index_status = 'indexing', updated_at = ? WHERE tenant_id = ? AND knowledge_base_id = ? AND id = ?")\n            .bind(new Date().toISOString(), context.tenantId, kb.id, row.id).run();\n          await indexDocument({ tenantId: context.tenantId, knowledgeBaseId: kb.id, categoryId: row.category_id, documentId: row.id, text: row.extracted_text });\n        } catch (error) {\n          console.error("[knowflow-rag] inherited platform Embedding reindex failed", row.id, error);\n          await DB.prepare("UPDATE knowledge_documents SET index_status = 'needs_embedding', updated_at = ? WHERE tenant_id = ? AND knowledge_base_id = ? AND id = ?")\n            .bind(new Date().toISOString(), context.tenantId, kb.id, row.id).run();\n        }\n      }\n    }\n    const result = await DB.prepare(`;
+          if (!knowledge.includes(getMarker)) throw new Error('knowledge GET marker not found');
+          knowledge = knowledge.replace(getMarker, autoHeal);
+          knowledge = knowledge.replace('文档已保存；配置 Embedding 后请重新索引。', '文档已保存；平台配置 Embedding 后会自动补齐向量索引。');
+          fs.writeFileSync(knowledgePath, knowledge);
+          NODE
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Validate boundaries
+        run: |
+          grep -q 'storageQuotaGb' app/platform/platform-dashboard.tsx
+          grep -q 'min="0.1" max="1024" step="0.1"' app/platform/platform-dashboard.tsx
+          grep -q 'storageQuotaGb' app/api/platform/route.ts
+          grep -q 'inheritedEmbedding' app/api/knowledge/route.ts
+          grep -q 'loadProviderConfig(context.tenantId, "embedding")' app/api/knowledge/route.ts
+      - name: Commit validated source changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/api/platform/route.ts app/platform/platform-dashboard.tsx app/api/knowledge/route.ts
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(platform): inherit model config and repair GB plan storage'
+            git push origin HEAD:fix-global-model-plan-storage-20260903
+          fi
