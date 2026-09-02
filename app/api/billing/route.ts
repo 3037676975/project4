@@ -1,3 +1,4 @@
+import { PublicApiError } from "../../../lib/api-keys";
 import { createBillingOrder, fulfillPaidOrder, listBillingOrders, paymentState, processRefundedOrder, submitRefund } from "../../../lib/billing";
 import { writePaymentLabLog } from "../../../lib/payment-lab";
 import { getRuntime } from "../../../lib/runtime";
@@ -113,5 +114,8 @@ export async function POST(request: Request) {
       return Response.json({ refunded: true, ...result });
     }
     return Response.json({ error: "不支持的账单操作。" }, { status: 400 });
-  } catch (error) { return routeError(error); }
+  } catch (error) {
+    if (error instanceof PublicApiError) return Response.json({ error: error.message, code: error.code }, { status: error.status });
+    return routeError(error);
+  }
 }
