@@ -81,9 +81,12 @@ export async function POST(request: Request) {
       const plan = await DB.prepare("SELECT id, code FROM plans WHERE id = ?").bind(id).first<{ id: string; code: string }>();
       if (!plan) return Response.json({ error: "套餐不存在。" }, { status: 404 });
       const name = typeof body.name === "string" ? body.name.trim().slice(0, 40) : ""; if (!name) return Response.json({ error: "套餐名称不能为空。" }, { status: 400 });
+      const storageQuotaGb = body.storageQuotaGb === undefined ? null : Number(body.storageQuotaGb);
+      if (storageQuotaGb !== null && (!Number.isFinite(storageQuotaGb) || storageQuotaGb < 0.1 || storageQuotaGb > 1024)) return Response.json({ error: "存储额度请输入 0.1 到 1024 GB。" }, { status: 400 });
+      const storageQuotaBytes = storageQuotaGb === null ? integer(body.storageQuotaBytes, 104_857_600, 1_099_511_627_776) : Math.round(storageQuotaGb * 1_073_741_824);
       const fields = {
         monthlyPriceCents: integer(body.monthlyPriceCents, 0, 100_000_000), requestQuota: integer(body.requestQuota, 1, 100_000_000),
-        tokenQuota: integer(body.tokenQuota, 1_000, 2_000_000_000), storageQuotaBytes: integer(body.storageQuotaBytes, 1_048_576, 1_099_511_627_776),
+        tokenQuota: integer(body.tokenQuota, 1_000, 2_000_000_000), storageQuotaBytes,
         monthlyCredits: integer(body.monthlyCredits, 0, 2_000_000_000), apiKeyLimit: integer(body.apiKeyLimit, 1, 100_000),
         memberLimit: integer(body.memberLimit, 1, 100_000), widgetConversationQuota: integer(body.widgetConversationQuota, 0, 100_000_000),
         leadQuota: integer(body.leadQuota, 0, 100_000_000), active: body.active === false ? 0 : 1,

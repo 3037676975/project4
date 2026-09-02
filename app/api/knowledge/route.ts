@@ -2,6 +2,7 @@ import { extractText, getDocumentProxy } from "unpdf";
 import { BUILTIN_MANUAL } from "../../../lib/knowledge";
 import { ensureDefaultCategory, requireCategory, resolveKnowledgeBase } from "../../../lib/knowledge-spaces";
 import { indexDocument, parseDocumentWithConfiguredOcr } from "../../../lib/rag";
+import { loadProviderConfig } from "../../../lib/provider";
 import { getRuntime } from "../../../lib/runtime";
 import { getOrCreateTenant, requireRole, routeError } from "../../../lib/tenant";
 import { calculateOcrCost } from "../../../lib/costs";
@@ -22,6 +23,23 @@ export async function GET(request: Request) {
     const context = await getOrCreateTenant(request); const url = new URL(request.url);
     const kb = await resolveKnowledgeBase(context, url.searchParams.get("knowledgeBaseId")); const { DB } = getRuntime();
     await ensureDefaultCategory(context.tenantId, kb.id);
+    const inheritedEmbedding = await loadProviderConfig(context.tenantId, "embedding").catch(() => null);
+    if (inheritedEmbedding) {
+      const pending = await DB.prepare(`SELECT id, category_id, extracted_text FROM knowledge_documents
+        WHERE tenant_id = ? AND knowledge_base_id = ? AND status = 'ready' AND index_status = 'needs_embedding' AND LENGTH(extracted_text) >= 10
+        ORDER BY updated_at ASC LIMIT 2`).bind(context.tenantId, kb.id).all<{ id: string; category_id: string | null; extracted_text: string }>();
+      for (const row of pending.results) {
+        try {
+          await DB.prepare("UPDATE knowledge_documents SET index_status = 'indexing', updated_at = ? WHERE tenant_id = ? AND knowledge_base_id = ? AND id = ?")
+            .bind(new Date().toISOString(), context.tenantId, kb.id, row.id).run();
+          await indexDocument({ tenantId: context.tenantId, knowledgeBaseId: kb.id, categoryId: row.category_id, documentId: row.id, text: row.extracted_text });
+        } catch (error) {
+          console.error("[knowflow-rag] inherited platform Embedding reindex failed", row.id, error);
+          await DB.prepare("UPDATE knowledge_documents SET index_status = 'needs_embedding', updated_at = ? WHERE tenant_id = ? AND knowledge_base_id = ? AND id = ?")
+            .bind(new Date().toISOString(), context.tenantId, kb.id, row.id).run();
+        }
+      }
+    }
     const result = await DB.prepare(`SELECT id, category_id, position, name, mime_type, char_count, page_count, status,
       index_status, chunk_count, ocr_used, created_at, updated_at
       FROM knowledge_documents WHERE tenant_id = ? AND knowledge_base_id = ?
@@ -120,7 +138,7 @@ export async function POST(request: Request) {
         VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, 0, ?, 'success', ?)`)
         .bind(crypto.randomUUID(), context.tenantId, `ocr_${id}`, `ocr:${ocrEngine || "configured"}`, pageCount || 1, costMicros, now).run();
     }
-    return Response.json({ document: { id, categoryId, position, name, mimeType, charCount: extracted.length, pageCount, status: "ready", indexStatus: indexing.chunkCount ? (indexing.indexed ? "indexed" : "needs_embedding") : "failed", chunkCount: indexing.chunkCount, ocrUsed, createdAt: now, builtIn: false }, warning: indexingWarning ?? (indexing.indexed ? null : "文档已保存；配置 Embedding 后请重新索引。") }, { status: 201 });
+    return Response.json({ document: { id, categoryId, position, name, mimeType, charCount: extracted.length, pageCount, status: "ready", indexStatus: indexing.chunkCount ? (indexing.indexed ? "indexed" : "needs_embedding") : "failed", chunkCount: indexing.chunkCount, ocrUsed, createdAt: now, builtIn: false }, warning: indexingWarning ?? (indexing.indexed ? null : "文档已保存；平台配置 Embedding 后会自动补齐向量索引。") }, { status: 201 });
   } catch (error) { return routeError(error); }
 }
 
