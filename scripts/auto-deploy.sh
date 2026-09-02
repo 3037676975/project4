@@ -3,33 +3,49 @@ set -Eeuo pipefail
 
 PROJECT_DIR="${PROJECT4_DIR:-/www/wwwroot/project4}"
 BRANCH="${PROJECT4_BRANCH:-main}"
-LOCK_DIR="/tmp/project4-auto-deploy.lock"
-
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  echo "[Project4] 已有部署任务正在执行，本次跳过。"
-  exit 0
-fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+LOCK_FILE="/tmp/project4-auto-deploy.lock"
+LAST_DEPLOYED_FILE="${PROJECT_DIR}/.git/project4-last-deployed"
 
 cd "$PROJECT_DIR"
+
+# Use kernel-backed flock instead of a mkdir lock. If two webhook deliveries arrive
+# together, the second waits for the first and then exits if that SHA was already
+# deployed. A killed process cannot leave a permanent stale lock behind.
+exec 9>"$LOCK_FILE"
+if ! flock -w 900 9; then
+  echo "[Project4] 等待其他部署超过 15 分钟，停止本次部署。"
+  exit 1
+fi
 
 echo "[Project4] $(date '+%F %T') 开始自动部署 ${BRANCH}"
 
 git fetch origin "$BRANCH"
 TARGET_SHA="$(git rev-parse "origin/$BRANCH")"
 CURRENT_SHA="$(git rev-parse HEAD)"
+LAST_DEPLOYED="$(cat "$LAST_DEPLOYED_FILE" 2>/dev/null || true)"
 
-if [[ "$CURRENT_SHA" == "$TARGET_SHA" && "${PROJECT4_FORCE_DEPLOY:-0}" != "1" ]]; then
-  echo "[Project4] 已是最新版本 ${TARGET_SHA:0:7}，无需重复构建。"
+# BaoTa pulls the repository before running this script, so HEAD being current does
+# not mean Docker was rebuilt. The success marker records the SHA that start.sh
+# actually finished deploying. PROJECT4_FORCE_DEPLOY=2 is reserved for a deliberate
+# rebuild of the exact same SHA; the existing BaoTa FORCE_DEPLOY=1 remains safe.
+if [[ "$LAST_DEPLOYED" == "$TARGET_SHA" && "${PROJECT4_FORCE_DEPLOY:-0}" != "2" ]]; then
+  echo "[Project4] ${TARGET_SHA:0:7} 已成功部署过，无需重复构建。"
   exit 0
 fi
 
-# .env.private 为 Git 忽略文件；hard reset 只同步受 Git 管理的源码，不删除私有配置和 Docker 数据卷。
-git reset --hard "origin/$BRANCH"
+# .env.private is ignored by Git. Hard reset only synchronizes tracked source files;
+# it does not remove private configuration or Docker data volumes.
+if [[ "$CURRENT_SHA" != "$TARGET_SHA" ]]; then
+  git reset --hard "origin/$BRANCH"
+fi
 
-echo "[Project4] 已同步到 $(git log -1 --oneline)"
+echo "[Project4] 准备部署 $(git log -1 --oneline)"
 
 bash "$PROJECT_DIR/start.sh"
+
+mkdir -p "$(dirname "$LAST_DEPLOYED_FILE")"
+printf '%s\n' "$TARGET_SHA" > "${LAST_DEPLOYED_FILE}.tmp"
+mv "${LAST_DEPLOYED_FILE}.tmp" "$LAST_DEPLOYED_FILE"
 
 echo "[Project4] 自动部署完成：$(git rev-parse --short HEAD)"
 docker compose --env-file "$PROJECT_DIR/.env.private" -f "$PROJECT_DIR/docker-compose.private.yml" ps || true
