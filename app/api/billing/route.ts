@@ -2,6 +2,7 @@ import { createBillingOrder, fulfillPaidOrder, listBillingOrders, paymentState, 
 import { writePaymentLabLog } from "../../../lib/payment-lab";
 import { getRuntime } from "../../../lib/runtime";
 import { getOrCreateTenant, requireRole, routeError } from "../../../lib/tenant";
+import { createWechatV2BillingOrder } from "../../../lib/wechat-v2-billing";
 
 export async function GET(request: Request) {
   try {
@@ -33,12 +34,18 @@ export async function POST(request: Request) {
     const context = await getOrCreateTenant(request); requireRole(context, ["owner"]);
     const body = await request.json() as Record<string, unknown>; const action = String(body.action || "create_order"); const { DB } = getRuntime(); const payment = await paymentState();
     if (action === "create_order" || action === "renew") {
-      const order = await createBillingOrder({ tenantId: context.tenantId, memberId: context.memberId,
-        planCode: typeof body.planCode === "string" ? body.planCode : "", requestedProvider: typeof body.provider === "string" ? body.provider : payment.provider,
-        clientRequestId: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined });
+      const selectedProvider = typeof body.provider === "string" ? body.provider : payment.provider;
+      const common = {
+        tenantId: context.tenantId, memberId: context.memberId,
+        planCode: typeof body.planCode === "string" ? body.planCode : "",
+        clientRequestId: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined,
+      };
+      const order = selectedProvider === "wechat"
+        ? await createWechatV2BillingOrder(common)
+        : await createBillingOrder({ ...common, requestedProvider: selectedProvider });
       await writePaymentLabLog({
         direction: "request", provider: String(order.provider), eventType: action === "renew" ? "order.renew.created" : "order.created",
-        orderNo: String(order.orderNo), status: String(order.status), message: "业务订单已创建并进入支付流程。",
+        orderNo: String(order.orderNo), status: String(order.status), message: selectedProvider === "wechat" ? "微信 V2 业务订单已创建并进入 Native 扫码支付流程。" : "业务订单已创建并进入支付流程。",
         detail: { tenantId: context.tenantId, amountCents: order.amountCents, plan: order.plan, paymentUrlConfigured: Boolean(order.paymentUrl), expiresAt: order.expiresAt },
       });
       return Response.json({ order }, { status: 201 });
