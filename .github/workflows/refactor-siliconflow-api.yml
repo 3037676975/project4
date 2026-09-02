@@ -1,0 +1,151 @@
+name: Refactor Project4 to SiliconFlow API
+
+on:
+  push:
+    branches: [siliconflow-api-refactor-20260903]
+    paths:
+      - '.github/workflows/refactor-siliconflow-api.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refactor-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+
+      - name: Refactor local Infinity to SiliconFlow API
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(path): return Path(path).read_text()
+          def write(path, text): Path(path).write_text(text)
+          def repl(path, old, new, expected=1):
+              text = read(path)
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: expected {expected} occurrence(s), got {count}: {old[:100]!r}')
+              write(path, text.replace(old, new))
+
+          # Private Docker deployment: no local Embedding/Rerank model container.
+          p = 'docker-compose.private.yml'
+          text = read(p)
+          text = text.replace('      INFINITY_API_KEY: ${INFINITY_API_KEY:?run scripts/init-private first}\n', '')
+          start = text.find('  embedding:\n')
+          end = text.find('  operations-sweeper:\n')
+          if start < 0 or end < 0 or end <= start:
+              raise SystemExit('docker-compose.private.yml: Infinity service block not found')
+          text = text[:start] + text[end:]
+          text = text.replace('  infinity-cache:\n', '')
+          write(p, text)
+
+          repl('start.sh', '''echo "[Project4] 正在启动低资源 Infinity（BGE-M3 + BGE-Reranker）；失败不会影响主站..."\nif ! docker compose --env-file .env.private -f docker-compose.private.yml --profile infinity up -d embedding; then\n  echo "[Project4] Infinity 暂未启动成功；KnowFlow 核心服务保持运行，可稍后单独重试 embedding。"\nfi\n\n''', '')
+          repl('start.sh', 'echo "[Project4] 当前默认启动：KnowFlow + Qdrant + Email Relay + Operations Sweeper + Infinity"\necho "[Project4] Infinity 使用 CPU 低批量模式加载 BGE-M3 与 BGE-Reranker；模型缓存会持久化。"', 'echo "[Project4] 当前默认启动：KnowFlow + Qdrant + Email Relay + Operations Sweeper"\necho "[Project4] Embedding / Rerank 使用硅基流动 HTTPS API，不在本机下载或加载模型。"')
+
+          repl('scripts/init-private.sh', '  embedding_key="$(openssl rand -hex 32)"\n', '')
+          repl('scripts/init-private.sh', '    echo "INFINITY_API_KEY=${embedding_key}"\n', '')
+          repl('scripts/init-private.ps1', '    "INFINITY_API_KEY=$(New-HexSecret)"\n', '')
+          repl('.env.private.example', 'INFINITY_API_KEY=replace-with-random-token\n', '')
+          repl('lib/runtime.ts', '  INFINITY_API_KEY?: string;\n', '')
+          repl('scripts/start-private.sh', '  "PARSER_API_KEY", "INFINITY_API_KEY", "DEEPSEEK_API_KEY",\n', '  "PARSER_API_KEY", "DEEPSEEK_API_KEY",\n')
+
+          # Official SiliconFlow endpoint guard shared by Embedding and Rerank.
+          repl('lib/provider.ts', 'throw new Error("Rerank 当前仅允许硅基流动官方 HTTPS API 地址")', 'throw new Error("Embedding / Rerank 当前仅允许硅基流动官方 HTTPS API 地址")')
+
+          # Platform settings defaults and provider boundaries.
+          p = 'app/api/settings/route.ts'
+          repl(p, '  embedding: { provider: "infinity", baseUrl: "https://embedding.example.com/v1", model: "BAAI/bge-m3", secondaryModel: null, dimensions: 1024, region: null },\n  rerank: { provider: "infinity", baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-reranker-v2-m3", secondaryModel: null, dimensions: null, region: null },', '  embedding: { provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", secondaryModel: null, dimensions: 1024, region: null },\n  rerank: { provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-reranker-v2-m3", secondaryModel: null, dimensions: null, region: null },')
+          repl(p, '  if (kind === "embedding" && (provider === "infinity" || provider === "openai")) return provider;\n  if (kind === "rerank" && (provider === "siliconflow" || provider === "infinity")) return provider;\n', '  if (kind === "embedding" && (provider === "siliconflow" || provider === "openai")) return provider;\n  if (kind === "rerank" && provider === "siliconflow") return provider;\n')
+          repl(p, '  if (kind === "embedding") throw new Error("Embedding 仅支持 Infinity 或 OpenAI。");\n  if (kind === "rerank") throw new Error("Rerank 仅支持本机 Infinity 或硅基流动。");', '  if (kind === "embedding") throw new Error("Embedding 仅支持硅基流动或 OpenAI。");\n  if (kind === "rerank") throw new Error("Rerank 仅支持硅基流动官方 API。");')
+          repl(p, '  if (kind === "rerank") return provider === "siliconflow" ? normalizeSiliconFlowBaseUrl(value) : normalizeSelfHostedBaseUrl(value, "自建 Rerank 地址");\n', '  if ((kind === "embedding" || kind === "rerank") && provider === "siliconflow") return normalizeSiliconFlowBaseUrl(value);\n  if (kind === "rerank") return normalizeSiliconFlowBaseUrl(value);\n')
+          repl(p, '    if (!/^[a-zA-Z0-9._/-]{2,160}$/.test(model)) return Response.json({ error: "模型或引擎名称格式不正确。" }, { status: 400 });\n', '    if (!/^[a-zA-Z0-9._/-]{2,160}$/.test(model)) return Response.json({ error: "模型或引擎名称格式不正确。" }, { status: 400 });\n    if (kind === "embedding" && provider === "siliconflow" && model !== "BAAI/bge-m3") return Response.json({ error: "硅基流动 Embedding 固定使用 BAAI/bge-m3。" }, { status: 400 });\n    if (kind === "rerank" && provider === "siliconflow" && model !== "BAAI/bge-reranker-v2-m3") return Response.json({ error: "硅基流动 Rerank 固定使用 BAAI/bge-reranker-v2-m3。" }, { status: 400 });\n')
+          repl(p, '    if (kind === "embedding" && provider === "infinity" && model === "BAAI/bge-m3" && dimensions !== 1024) return Response.json({ error: "BAAI/bge-m3 的向量维度固定为 1024。" }, { status: 400 });', '    if (kind === "embedding" && provider === "siliconflow" && model === "BAAI/bge-m3" && dimensions !== 1024) return Response.json({ error: "BAAI/bge-m3 的向量维度固定为 1024。" }, { status: 400 });')
+          repl(p, 'kind === "embedding" ? "Embedding 服务 Token"', 'kind === "embedding" ? "Embedding API Key"')
+
+          # Fresh-install automatic Rerank pairing now follows SiliconFlow embedding.
+          repl('lib/platform-provider.ts', "WHERE kind = 'embedding' AND provider = 'infinity' AND status = 'active' LIMIT 1", "WHERE kind = 'embedding' AND provider = 'siliconflow' AND status = 'active' LIMIT 1")
+          repl('lib/platform-provider.ts', "VALUES ('pprov_rerank', 'rerank', 'infinity', ?, 'BAAI/bge-reranker-v2-m3'", "VALUES ('pprov_rerank', 'rerank', 'siliconflow', ?, 'BAAI/bge-reranker-v2-m3'")
+
+          # Enterprise defaults should mirror platform API-only configuration.
+          for p in ['app/dashboard.tsx', 'app/platform/provider-settings.tsx']:
+              repl(p, 'const initialEmbedding: ProviderConfig = { kind: "embedding", provider: "infinity", baseUrl: "https://embedding.example.com/v1", model: "BAAI/bge-m3", secondaryModel: null, dimensions: 1024, configured: false, keyHint: null, updatedAt: null };', 'const initialEmbedding: ProviderConfig = { kind: "embedding", provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", secondaryModel: null, dimensions: 1024, configured: false, keyHint: null, updatedAt: null };')
+              repl(p, 'const initialRerank: ProviderConfig = { kind: "rerank", provider: "infinity", baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-reranker-v2-m3", secondaryModel: null, dimensions: null, configured: false, keyHint: null, updatedAt: null, reuseEmbeddingKey: true, candidateCount: 12, topN: 3 };', 'const initialRerank: ProviderConfig = { kind: "rerank", provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-reranker-v2-m3", secondaryModel: null, dimensions: null, configured: false, keyHint: null, updatedAt: null, reuseEmbeddingKey: true, candidateCount: 12, topN: 3 };')
+
+          # Platform UI: SiliconFlow is the default cloud provider; no local model choice.
+          p = 'app/platform/provider-settings.tsx'
+          repl(p, '      : { ...embedding, provider: "infinity", baseUrl: "https://embedding.example.com/v1", model: "BAAI/bge-m3", dimensions: 1024, configured: false, keyHint: null });', '      : { ...embedding, provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", dimensions: 1024, configured: false, keyHint: null });')
+          repl(p, '''  function switchRerankProvider(provider: string) {\n    setRerank(provider === "infinity"\n      ? { ...rerank, provider, baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-reranker-v2-m3", reuseEmbeddingKey: true, configured: false, keyHint: null }\n      : { ...rerank, provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-reranker-v2-m3", reuseEmbeddingKey: false, configured: false, keyHint: null });\n    clearSecrets("rerank");\n  }''', '''  function switchRerankProvider() {\n    setRerank({ ...rerank, provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-reranker-v2-m3", reuseEmbeddingKey: true, configured: false, keyHint: null });\n    clearSecrets("rerank");\n  }''')
+          repl(p, '    const selfHosted = config.provider === "infinity" || config.provider === "docling" || config.provider === "compatible";', '    const selfHosted = config.provider === "docling" || config.provider === "compatible";')
+          repl(p, '    const secretLabel = config.provider === "baidu" ? "百度云 Secret Key" : config.provider === "tencent" ? "腾讯云 SecretKey" : kind === "rerank" ? (config.provider === "infinity" ? "Infinity 服务 Token" : "硅基流动 API Key") : selfHosted ? "服务 Token" : "API Key";', '    const secretLabel = config.provider === "baidu" ? "百度云 Secret Key" : config.provider === "tencent" ? "腾讯云 SecretKey" : (kind === "embedding" || kind === "rerank") && config.provider === "siliconflow" ? "硅基流动 API Key" : selfHosted ? "服务 Token" : "API Key";')
+          repl(p, '    const fixedUrl = kind === "generation" || (kind === "rerank" && config.provider === "siliconflow") || config.provider === "openai" || config.provider === "baidu" || config.provider === "tencent";', '    const fixedUrl = kind === "generation" || config.provider === "siliconflow" || config.provider === "openai" || config.provider === "baidu" || config.provider === "tencent";')
+          repl(p, '{kind === "embedding" && <><label>服务方式<span>支持自建服务或兼容的向量 API</span></label><select value={config.provider} onChange={(event) => switchProvider("embedding", event.target.value)}><option value="infinity">Infinity / BGE-M3 兼容 API</option><option value="openai">OpenAI API</option></select></>}', '{kind === "embedding" && <><label>服务方式<span>默认使用硅基流动云 API，不在服务器下载模型</span></label><select value={config.provider} onChange={(event) => switchProvider("embedding", event.target.value)}><option value="siliconflow">硅基流动 / BGE-M3</option><option value="openai">OpenAI API</option></select></>}')
+          repl(p, '{kind === "rerank" && <><label>服务方式<span>默认复用本机 Infinity，也可切换硅基流动</span></label><select value={config.provider} onChange={(event) => switchRerankProvider(event.target.value)}><option value="infinity">本机 Infinity / BGE-Reranker</option><option value="siliconflow">硅基流动 / BGE-Reranker</option></select></>}', '{kind === "rerank" && <><label>服务方式<span>使用硅基流动云 API，可复用 Embedding 的同一 API Key</span></label><select value="siliconflow" onChange={() => switchRerankProvider()}><option value="siliconflow">硅基流动 / BGE-Reranker</option></select></>}')
+          repl(p, '<label>API Base URL<span>{fixedUrl ? "官方 HTTPS 地址已锁定，防止密钥发送到错误服务器" : config.provider === "infinity" ? "私有部署可使用 Docker 内网地址；公网部署仍建议 HTTPS" : "填写公网 HTTPS 服务地址，禁止内网地址"}</span></label>', '<label>API Base URL<span>{fixedUrl ? "官方 HTTPS 地址已锁定，防止密钥发送到错误服务器" : "填写公网 HTTPS 服务地址，禁止内网地址"}</span></label>')
+
+          # Test messaging.
+          repl('app/api/settings/test/route.ts', 'config.provider === "infinity" ? "BGE-M3 / Infinity" : "OpenAI"', 'config.provider === "siliconflow" ? "BGE-M3 / 硅基流动" : "OpenAI"')
+
+          # Runtime status panel: show cloud configuration state without polling paid model APIs every 15 seconds.
+          Path('app/api/platform/services/route.ts').write_text('''import { requirePlatformAdmin, platformRouteError } from "../../../../lib/platform-admin";\nimport { loadPlatformProviderRows } from "../../../../lib/platform-provider";\nimport { getRuntime } from "../../../../lib/runtime";\n\ntype ServiceState = { id: string; name: string; status: "healthy" | "degraded" | "stopped"; detail: string };\n\nasync function jsonHealth(id: string, name: string, url: string, headers: Record<string, string>, inspect?: (data: Record<string, unknown>) => string): Promise<ServiceState> {\n  try {\n    const response = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });\n    const data = await response.json().catch(() => ({})) as Record<string, unknown>;\n    if (!response.ok) return { id, name, status: "degraded", detail: `HTTP ${response.status}` };\n    return { id, name, status: "healthy", detail: inspect?.(data) || "运行正常" };\n  } catch {\n    return { id, name, status: "stopped", detail: "未运行或暂不可达" };\n  }\n}\n\nexport async function GET(request: Request) {\n  try {\n    await requirePlatformAdmin(request, ["super_admin"]);\n    const runtime = getRuntime();\n    const rows = await loadPlatformProviderRows();\n    const embedding = rows.find((row) => row.kind === "embedding");\n    const rerank = rows.find((row) => row.kind === "rerank");\n    const embeddingReady = embedding?.provider === "siliconflow" && Boolean(embedding.api_key_hint);\n    const rerankReady = rerank?.provider === "siliconflow" && Boolean(rerank.api_key_hint || (rerank.reuse_api_key_from === "embedding" && embeddingReady));\n    const services: ServiceState[] = [\n      { id: "embedding", name: "Embedding", status: embeddingReady ? "healthy" : embedding ? "degraded" : "stopped", detail: embeddingReady ? "硅基流动 · BAAI/bge-m3 · API 已配置" : "等待配置硅基流动 API Key" },\n      { id: "rerank", name: "Rerank", status: rerankReady ? "healthy" : rerank ? "degraded" : "stopped", detail: rerankReady ? "硅基流动 · BAAI/bge-reranker-v2-m3" : "等待配置或复用 Embedding API Key" },\n      await jsonHealth("parser", "文档解析", "http://document-parser:8001/health", runtime.PARSER_API_KEY ? { Authorization: `Bearer ${runtime.PARSER_API_KEY}` } : {}, (data) => String(data.engine || "Docling + RapidOCR")),\n      await jsonHealth("qdrant", "向量数据库", `${(runtime.QDRANT_URL || "http://qdrant:6333").replace(/\\/$/, "")}/collections`, runtime.QDRANT_API_KEY ? { "api-key": runtime.QDRANT_API_KEY } : {}, () => "Qdrant 集合服务正常"),\n    ];\n    return Response.json({ checkedAt: new Date().toISOString(), services });\n  } catch (error) { return platformRouteError(error); }\n}\n''')
+
+          # Existing local Infinity rows become cloud SiliconFlow rows, but old local tokens are discarded.
+          Path('drizzle/0015_siliconflow_api_only.sql').write_text('''UPDATE platform_provider_configs\nSET provider = 'siliconflow', base_url = 'https://api.siliconflow.cn/v1', model = 'BAAI/bge-m3', dimensions = 1024,\n    api_key_ciphertext = NULL, api_key_iv = NULL, api_key_hint = NULL, reuse_api_key_from = NULL, updated_at = CURRENT_TIMESTAMP\nWHERE kind = 'embedding' AND provider = 'infinity';\n\nUPDATE platform_provider_configs\nSET provider = 'siliconflow', base_url = 'https://api.siliconflow.cn/v1', model = 'BAAI/bge-reranker-v2-m3', dimensions = NULL,\n    api_key_ciphertext = NULL, api_key_iv = NULL, api_key_hint = NULL, reuse_api_key_from = 'embedding', updated_at = CURRENT_TIMESTAMP\nWHERE kind = 'rerank' AND provider = 'infinity';\n\nUPDATE tenant_provider_configs\nSET provider = 'siliconflow', base_url = 'https://api.siliconflow.cn/v1', model = 'BAAI/bge-m3', dimensions = 1024,\n    api_key_ciphertext = NULL, api_key_iv = NULL, api_key_hint = NULL, reuse_api_key_from = NULL, updated_at = CURRENT_TIMESTAMP\nWHERE kind = 'embedding' AND provider = 'infinity';\n\nUPDATE tenant_provider_configs\nSET provider = 'siliconflow', base_url = 'https://api.siliconflow.cn/v1', model = 'BAAI/bge-reranker-v2-m3', dimensions = NULL,\n    api_key_ciphertext = NULL, api_key_iv = NULL, api_key_hint = NULL, reuse_api_key_from = 'embedding', updated_at = CURRENT_TIMESTAMP\nWHERE kind = 'rerank' AND provider = 'infinity';\n''')
+
+          # Documentation: private deployment no longer runs local BGE models.
+          p = 'README.md'
+          text = read(p)
+          text = text.replace('- 开源向量：Infinity 提供 OpenAI 兼容 API，默认模型 `BAAI/bge-m3`，1024 维。', '- 向量与重排：默认调用硅基流动 HTTPS API，Embedding 使用 `BAAI/bge-m3`（1024 维），Rerank 使用 `BAAI/bge-reranker-v2-m3`；Project4 私有服务器不下载这两个模型。')
+          text = text.replace('脚本会生成仅本机使用的 `.env.private`，并在终端显示一次 `admin@local.test` 的随机超级管理员初始密码；随后自动执行 D1 迁移并启动 KnowFlow、Qdrant、邮件中继、每分钟运营巡检，以及低资源 CPU Infinity（`BAAI/bge-m3` + `BAAI/bge-reranker-v2-m3`）。Docling / RapidOCR 独立为 `parser` profile，不会在 4G 服务器的普通部署中自动构建。', '脚本会生成仅本机使用的 `.env.private`，随后自动执行 D1 迁移并启动 KnowFlow、Qdrant、邮件中继与每分钟运营巡检。Embedding / Rerank 由超级管理员在平台后台填写硅基流动 API Key 后直接调用云 API，本机不下载 BGE 模型。Docling / RapidOCR 仍独立为 `parser` profile，不会在普通部署中自动构建。')
+          text = re.sub(r'### 2 核 4G 私有服务器的模型服务\n.*?(?=## 后台入口与账号规则)', '''### Embedding / Rerank（硅基流动 API）\n\nProject4 私有部署不再启动 Infinity，也不会在服务器下载 `BAAI/bge-m3` 或 `BAAI/bge-reranker-v2-m3`。超级管理员进入 **平台控制台 → 模型服务**：\n\n1. Embedding 选择“硅基流动 / BGE-M3”，填写一次硅基流动 API Key 并保存、测试。\n2. Rerank 使用“硅基流动 / BGE-Reranker”，默认复用 Embedding 的同一 API Key。\n3. Qdrant 仍保留在本机用于向量存储；模型推理由硅基流动承担，因此不会占用本机模型内存和模型磁盘缓存。\n\nDocling / RapidOCR 仍是可选的独立 `parser` profile。确需本地复杂文档解析时再单独启动：\n\n```bash\ndocker compose --env-file .env.private -f docker-compose.private.yml --profile parser up -d --build document-parser\n```\n\n''', text, flags=re.S)
+          write(p, text)
+          PY
+
+          git diff --check
+          grep -q 'provider: "siliconflow"' app/api/settings/route.ts
+          grep -q 'BAAI/bge-m3' app/api/settings/route.ts
+          grep -q 'BAAI/bge-reranker-v2-m3' app/api/settings/route.ts
+          ! grep -q 'michaelf34/infinity' docker-compose.private.yml
+          ! grep -q 'infinity-cache' docker-compose.private.yml
+          ! grep -q 'INFINITY_API_KEY' docker-compose.private.yml
+          ! grep -q 'profile infinity\|--profile infinity' start.sh
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build Project4
+        run: npm run build
+
+      - name: Run provider and payment regression tests
+        run: |
+          node --experimental-strip-types --experimental-loader=./tests/cloudflare-loader.mjs --test tests/platform-provider-boundary.test.mjs
+          node --experimental-strip-types --experimental-loader=./tests/cloudflare-loader.mjs --test tests/payment-crypto.test.mjs
+
+      - name: Commit validated refactor to branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/refactor-siliconflow-api.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git diff --check
+          if git status --porcelain | grep -E '(^| )\.env\.private($|/)|secret|credential' >/dev/null; then
+            echo 'Refusing suspicious private file change' >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'refactor(ai): use SiliconFlow API for embedding and rerank'
+          git push origin HEAD:siliconflow-api-refactor-20260903
