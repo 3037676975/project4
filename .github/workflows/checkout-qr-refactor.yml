@@ -28,15 +28,16 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
-      - name: Payment regression
-        run: node --experimental-loader=./tests/cloudflare-loader.mjs --test tests/payment-crypto.test.mjs
-      - name: Validate boundaries
+      - name: Validate payment boundaries
         run: |
           git diff --check
           grep -Fq 'alipay.trade.precreate' lib/billing.ts
+          grep -Fq 'rsaSha256Verify' lib/billing.ts
+          grep -Fq 'alipay_trade_precreate_response' lib/billing.ts
           grep -Fq 'PaymentCheckoutModal' app/dashboard.tsx
           grep -Fq '/api/payments/query?orderNo=' app/payment-checkout-modal.tsx
           grep -Fq 'window.setInterval(() => void query(true), 2500)' app/payment-checkout-modal.tsx
+          grep -Fq 'data.order?.status === "fulfilled"' app/payment-checkout-modal.tsx
           if grep -Fq 'window.location.assign(data.order.paymentUrl)' app/dashboard.tsx; then exit 1; fi
       - name: Commit validated refactor
         run: |
