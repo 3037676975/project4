@@ -104,3 +104,5 @@ npm test
 5. 查询时按 `tenant_id + knowledge_base_id` 过滤 Qdrant，融合向量与中文词法命中，再用独立 Reranker 精排。
 6. 低于助手阈值时直接拒答；达到阈值才调用生成模型。
 7. 回答、来源、Token、耗时、Credits 与真实成本进入 Trace。
+
+<!-- auto-deploy verification: 2026-09-03 -->
