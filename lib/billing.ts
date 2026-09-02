@@ -1,8 +1,9 @@
 import { PublicApiError } from "./api-keys";
-import { constantTimeEqual, hmacSha256, randomToken, sha256 } from "./security";
+import { constantTimeEqual, hmacSha256, sha256 } from "./security";
 import { getRuntime } from "./runtime";
-import { alipaySignContent, chinaPaymentTimestamp, decryptWechatResource, rsaSha256Sign, rsaSha256Verify, yuanToCents } from "./payment-crypto";
+import { alipaySignContent, chinaPaymentTimestamp, rsaSha256Sign, rsaSha256Verify, yuanToCents } from "./payment-crypto";
 import { channelSupportsAmount, loadPaymentConfig, loadPaymentConfigs, paymentConfigReady, publicPaymentChannel, type PaymentProvider } from "./payment-config";
+import { createWechatV2NativeOrder, wechatV2ParseXml, wechatV2Verify } from "./wechat-v2";
 
 export type { PaymentProvider } from "./payment-config";
 
@@ -56,23 +57,20 @@ export async function buildCheckout(input: { orderNo: string; amountCents: numbe
     return { paymentUrl: checkout.toString(), providerTradeNo: null };
   }
   if (input.provider === "wechat") {
-    const endpoint = new URL(config.checkoutUrl);
-    const body = JSON.stringify({
-      appid: config.details.appId,
-      mchid: config.merchantId,
-      description: input.description.slice(0, 127),
-      out_trade_no: input.orderNo,
-      notify_url: callbackUrl,
-      amount: { total: input.amountCents, currency: "CNY" },
-    });
-    const timestamp = Math.floor(Date.now() / 1000).toString(); const nonce = randomToken(18);
-    const path = `${endpoint.pathname}${endpoint.search}`;
-    const signature = await rsaSha256Sign(`POST\n${path}\n${timestamp}\n${nonce}\n${body}\n`, config.details.merchantPrivateKey || "");
-    const authorization = `WECHATPAY2-SHA256-RSA2048 mchid="${config.merchantId}",nonce_str="${nonce}",timestamp="${timestamp}",serial_no="${config.details.merchantSerialNo}",signature="${signature}"`;
-    const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: authorization }, body, signal: AbortSignal.timeout(15000) });
-    const data = await response.json().catch(() => ({})) as { code_url?: string; code?: string; message?: string };
-    if (!response.ok || !data.code_url) throw new PublicApiError(502, `微信支付下单失败：${data.message || data.code || `HTTP ${response.status}`}`, "payment_gateway_error");
-    return { paymentUrl: data.code_url, providerTradeNo: null };
+    try {
+      const checkout = await createWechatV2NativeOrder({
+        appId: config.details.appId || "",
+        merchantId: config.merchantId,
+        apiV2Key: config.details.apiV2Key || "",
+        unifiedOrderUrl: config.checkoutUrl,
+        orderQueryUrl: config.details.queryUrl || "https://api.mch.weixin.qq.com/pay/orderquery",
+        notifyUrl: callbackUrl,
+        spbillCreateIp: config.details.spbillCreateIp || "",
+      }, { orderNo: input.orderNo, amountCents: input.amountCents, description: input.description });
+      return { paymentUrl: checkout.codeUrl, providerTradeNo: null };
+    } catch (error) {
+      throw new PublicApiError(502, error instanceof Error ? error.message : "微信 V2 下单失败。", "payment_gateway_error");
+    }
   }
   const checkout = new URL(config.checkoutUrl);
   if (checkout.protocol !== "https:") throw new PublicApiError(503, "支付网关必须使用 HTTPS。", "payment_not_configured");
@@ -194,6 +192,12 @@ function callbackText(value: unknown, limit = 160) {
   return typeof value === "string" ? value.trim().slice(0, limit) : "";
 }
 
+function wechatV2Time(value: string) {
+  if (!/^\d{14}$/.test(value)) return new Date().toISOString();
+  const date = new Date(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(8, 10)}:${value.slice(10, 12)}:${value.slice(12, 14)}+08:00`);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
 export async function parsePaymentCallback(request: Request, provider: Exclude<PaymentProvider, "sandbox">): Promise<NormalizedPaymentCallback> {
   const rawBody = await request.text();
   if (provider === "gateway") {
@@ -232,37 +236,23 @@ export async function parsePaymentCallback(request: Request, provider: Exclude<P
       tradeNo: callbackText(values.trade_no), occurredAt: callbackText(values.gmt_payment) || new Date().toISOString(),
     };
   }
+
   const config = await loadPaymentConfig("wechat");
-  const signature = request.headers.get("wechatpay-signature") || "";
-  const timestamp = request.headers.get("wechatpay-timestamp") || "";
-  const nonce = request.headers.get("wechatpay-nonce") || "";
-  const serial = request.headers.get("wechatpay-serial") || "";
-  let envelope: { id?: unknown; event_type?: unknown; resource?: { ciphertext?: unknown; nonce?: unknown; associated_data?: unknown } };
-  try { envelope = JSON.parse(rawBody) as typeof envelope; }
-  catch { throw new PublicApiError(400, "微信支付回调不是有效 JSON。", "invalid_callback"); }
-  const timestampNumber = Number(timestamp);
-  const signatureValid = Boolean(signature && timestamp && nonce && serial) && serial === config.details.platformPublicKeyId &&
-    Number.isFinite(timestampNumber) && Math.abs(Date.now() / 1000 - timestampNumber) <= 600 &&
-    await rsaSha256Verify(`${timestamp}\n${nonce}\n${rawBody}\n`, signature, config.details.platformPublicKey || "");
-  const resource = envelope.resource;
-  if (!resource || typeof resource.ciphertext !== "string" || typeof resource.nonce !== "string") throw new PublicApiError(400, "微信支付回调缺少加密资源。", "invalid_callback");
-  let decrypted: Record<string, unknown>;
-  try {
-    decrypted = JSON.parse(await decryptWechatResource({ ciphertext: resource.ciphertext, nonce: resource.nonce, associated_data: typeof resource.associated_data === "string" ? resource.associated_data : undefined }, config.details.apiV3Key || "")) as Record<string, unknown>;
-  } catch { throw new PublicApiError(400, "微信支付回调资源解密失败。", "invalid_callback"); }
-  const refund = envelope.event_type === "REFUND.SUCCESS";
-  const eventType = refund ? "refund.succeeded" : envelope.event_type === "TRANSACTION.SUCCESS" ? "payment.succeeded" : null;
-  const amount = decrypted.amount as Record<string, unknown> | undefined;
-  const amountCents = Number(refund ? amount?.refund : amount?.total);
-  const stateValid = refund ? decrypted.refund_status === "SUCCESS" : decrypted.trade_state === "SUCCESS";
-  if (!eventType || !stateValid || !callbackText(envelope.id) || !callbackText(decrypted.out_trade_no, 80) || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
-    throw new PublicApiError(400, "微信支付回调字段或交易状态无效。", "invalid_callback");
+  let values: Record<string, string>;
+  try { values = wechatV2ParseXml(rawBody); }
+  catch { throw new PublicApiError(400, "微信 V2 回调 XML 无法解析。", "invalid_callback"); }
+  const amountCents = Number(values.total_fee || 0);
+  const signatureValid = Boolean(config.details.apiV2Key) &&
+    await wechatV2Verify(values, config.details.apiV2Key || "") &&
+    values.appid === config.details.appId && values.mch_id === config.merchantId;
+  const stateValid = values.return_code === "SUCCESS" && values.result_code === "SUCCESS";
+  if (!stateValid || !values.out_trade_no || !values.transaction_id || !Number.isSafeInteger(amountCents) || amountCents <= 0 || (values.fee_type && values.fee_type !== "CNY")) {
+    throw new PublicApiError(400, "微信 V2 回调字段或交易状态无效。", "invalid_callback");
   }
   return {
-    provider, rawBody, eventType, signatureValid, amountCents, currency: "CNY",
-    eventId: callbackText(envelope.id), orderNo: callbackText(decrypted.out_trade_no, 80),
-    tradeNo: callbackText(refund ? decrypted.refund_id : decrypted.transaction_id) || callbackText(envelope.id),
-    occurredAt: callbackText(refund ? decrypted.success_time : decrypted.success_time) || new Date().toISOString(),
+    provider: "wechat", rawBody, eventType: "payment.succeeded", signatureValid, amountCents, currency: "CNY",
+    eventId: callbackText(values.transaction_id), orderNo: callbackText(values.out_trade_no, 80),
+    tradeNo: callbackText(values.transaction_id), occurredAt: wechatV2Time(values.time_end || ""),
   };
 }
 
@@ -318,6 +308,9 @@ export async function processRefundedOrder(orderNo: string, providerRefundNo: st
 export async function submitRefund(input: { refundId: string; orderNo: string; amountCents: number; reason: string; provider: PaymentProvider }) {
   const config = await loadPaymentConfig(input.provider);
   if (config.mode === "sandbox") return { submitted: false, sandbox: true };
+  if (input.provider === "wechat") {
+    throw new PublicApiError(501, "微信支付 V2 自动退款需要商户 API 证书和双向 TLS，请使用微信商户平台或独立的 V2 退款服务。", "wechat_v2_refund_requires_cert");
+  }
   if (!config.refundUrl || !paymentConfigReady(config) || !config.merchantId) return { submitted: false, sandbox: false };
   const url = new URL(config.refundUrl); if (url.protocol !== "https:") throw new PublicApiError(503, "退款网关必须使用 HTTPS。");
   if (input.provider === "alipay") {
@@ -332,17 +325,6 @@ export async function submitRefund(input: { refundId: string; orderNo: string; a
     const result = data.alipay_trade_refund_response;
     if (!response.ok || result?.code !== "10000") throw new PublicApiError(502, `支付宝退款失败：${result?.sub_msg || result?.msg || `HTTP ${response.status}`}`, "refund_gateway_error");
     return { submitted: true, sandbox: false, completed: true, providerRefundNo: result.trade_no || input.refundId };
-  }
-  if (input.provider === "wechat") {
-    const runtime = getRuntime(); const callbackUrl = `${(runtime.APP_BASE_URL || "").replace(/\/$/, "")}/api/payments/callback?provider=wechat`;
-    const payload = JSON.stringify({ out_trade_no: input.orderNo, out_refund_no: input.refundId, reason: input.reason.slice(0, 80), notify_url: callbackUrl, amount: { refund: input.amountCents, total: input.amountCents, currency: "CNY" } });
-    const timestamp = Math.floor(Date.now() / 1000).toString(); const nonce = randomToken(18); const path = `${url.pathname}${url.search}`;
-    const signature = await rsaSha256Sign(`POST\n${path}\n${timestamp}\n${nonce}\n${payload}\n`, config.details.merchantPrivateKey || "");
-    const authorization = `WECHATPAY2-SHA256-RSA2048 mchid="${config.merchantId}",nonce_str="${nonce}",timestamp="${timestamp}",serial_no="${config.details.merchantSerialNo}",signature="${signature}"`;
-    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: authorization }, body: payload, signal: AbortSignal.timeout(15000) });
-    const data = await response.json().catch(() => ({})) as { refund_id?: string; status?: string; code?: string; message?: string };
-    if (!response.ok) throw new PublicApiError(502, `微信支付退款失败：${data.message || data.code || `HTTP ${response.status}`}`, "refund_gateway_error");
-    return { submitted: true, sandbox: false, completed: data.status === "SUCCESS", providerRefundNo: data.refund_id || input.refundId };
   }
   const timestamp = Math.floor(Date.now() / 1000).toString(); const payload = JSON.stringify({ merchant_id: config.merchantId, refund_id: input.refundId, order_no: input.orderNo, amount: input.amountCents, currency: "CNY", reason: input.reason, timestamp });
   const signature = await hmacSha256(config.details.callbackSecret || "", `${timestamp}\nrefund\n${payload}`);
