@@ -18,8 +18,8 @@ if [[ ! -f "${env_file}" ]]; then
   umask 077
   {
     echo "CONFIG_ENCRYPTION_KEY=${encryption_key}"
-    echo "LOCAL_AUTH_EMAIL=admin@local.test"
-    echo "LOCAL_AUTH_NAME=本地管理员"
+    echo "LOCAL_AUTH_EMAIL=3037676975@qq.com"
+    echo "LOCAL_AUTH_NAME=超级管理员"
     echo "LOCAL_ADMIN_PASSWORD=${generated_password}"
     echo "LOCAL_AUTH_SESSION_SECRET=${session_key}"
     echo "PARSER_API_KEY=${parser_key}"
@@ -61,7 +61,7 @@ fi
 docker compose --env-file "${env_file}" -f "${project_dir}/docker-compose.private.yml" up -d --build
 echo "KnowFlow 已启动：http://localhost:3000"
 if [[ -n "${generated_password}" ]]; then
-  echo "超级管理员：admin@local.test"
+  echo "超级管理员：3037676975@qq.com"
   echo "初始密码：${generated_password}"
   echo "密码已保存到 ${env_file}"
 fi
