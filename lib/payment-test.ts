@@ -2,7 +2,7 @@ import { loadPaymentConfig, paymentConfigReady } from "./payment-config";
 import { alipayRequestSignContent, chinaPaymentTimestamp, rsaSha256Sign, rsaSha256Verify } from "./payment-crypto";
 import { queryPaymentProvider } from "./payment-lab";
 import { getRuntime } from "./runtime";
-import { createWechatV2NativeOrder } from "./wechat-v2";
+import { createConfiguredWechatV2NativeOrder } from "./wechat-v2-checkout";
 
 export type PaymentTestProvider = "wechat" | "alipay";
 
@@ -102,17 +102,12 @@ export async function createPaymentTestOrder(provider: PaymentTestProvider): Pro
   const orderNo = testOrderNo(provider);
   const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
   if (provider === "wechat") {
-    const config = await loadPaymentConfig("wechat");
-    if (!paymentConfigReady(config)) throw new Error("请先保存微信 AppID、商户号和 API V2 Key。");
-    const created = await createWechatV2NativeOrder({
-      appId: config.details.appId || "",
-      merchantId: config.merchantId,
-      apiV2Key: config.details.apiV2Key || "",
-      unifiedOrderUrl: config.checkoutUrl,
-      orderQueryUrl: config.details.queryUrl || "https://api.mch.weixin.qq.com/pay/orderquery",
-      notifyUrl: testCallbackUrl("wechat"),
-      spbillCreateIp: config.details.spbillCreateIp || "",
-    }, { orderNo, amountCents: 1, description: "KnowFlow 微信支付测试" });
+    const created = await createConfiguredWechatV2NativeOrder({
+      orderNo,
+      amountCents: 1,
+      description: "KnowFlow 微信支付测试",
+      notifyPath: "/api/payments/test-callback?provider=wechat",
+    });
     return { provider, orderNo, amountCents: 1, payUrl: created.codeUrl, expiresAt, message: "微信已返回真实 Native code_url。" };
   }
   const payUrl = await createAlipayTestOrder(orderNo);
