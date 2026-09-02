@@ -1,4 +1,5 @@
 import { createBillingOrder, fulfillPaidOrder, listBillingOrders, paymentState, processRefundedOrder, submitRefund } from "../../../lib/billing";
+import { writePaymentLabLog } from "../../../lib/payment-lab";
 import { getRuntime } from "../../../lib/runtime";
 import { getOrCreateTenant, requireRole, routeError } from "../../../lib/tenant";
 
@@ -35,6 +36,11 @@ export async function POST(request: Request) {
       const order = await createBillingOrder({ tenantId: context.tenantId, memberId: context.memberId,
         planCode: typeof body.planCode === "string" ? body.planCode : "", requestedProvider: typeof body.provider === "string" ? body.provider : payment.provider,
         clientRequestId: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined });
+      await writePaymentLabLog({
+        direction: "request", provider: String(order.provider), eventType: action === "renew" ? "order.renew.created" : "order.created",
+        orderNo: String(order.orderNo), status: String(order.status), message: "业务订单已创建并进入支付流程。",
+        detail: { tenantId: context.tenantId, amountCents: order.amountCents, plan: order.plan, paymentUrlConfigured: Boolean(order.paymentUrl), expiresAt: order.expiresAt },
+      });
       return Response.json({ order }, { status: 201 });
     }
     if (action === "sandbox_confirm") {
@@ -43,6 +49,7 @@ export async function POST(request: Request) {
       const owned = await DB.prepare("SELECT order_no FROM billing_orders WHERE tenant_id = ? AND order_no = ? AND provider = 'sandbox'").bind(context.tenantId, orderNo).first<{ order_no: string }>();
       if (!owned) return Response.json({ error: "沙箱订单不存在。" }, { status: 404 });
       const result = await fulfillPaidOrder(orderNo, `sandbox_${crypto.randomUUID()}`);
+      await writePaymentLabLog({ direction: "system", provider: "sandbox", eventType: "sandbox.payment.confirmed", orderNo, status: "processed", message: "沙箱付款已确认，权益按幂等规则发放。" });
       return Response.json({ paid: true, ...result });
     }
     if (action === "cancel_renewal") {
@@ -62,23 +69,33 @@ export async function POST(request: Request) {
         (id, order_id, tenant_id, amount_cents, reason, status, requested_by_member_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, 'requested', ?, ?, ?)`)
         .bind(id, order.id, context.tenantId, order.amount_cents, reason, context.memberId, now, now).run();
+      await writePaymentLabLog({ direction: "refund", provider: order.provider, eventType: "refund.requested", orderNo, status: "requested", message: "企业提交退款申请。", detail: { refundId: id, amountCents: order.amount_cents, reason } });
       let submitted: Awaited<ReturnType<typeof submitRefund>>;
       try { submitted = await submitRefund({ refundId: id, orderNo, amountCents: order.amount_cents, reason, provider: order.provider }); }
-      catch (error) { await DB.prepare("UPDATE refund_requests SET status = 'failed', updated_at = ? WHERE id = ?").bind(new Date().toISOString(), id).run(); throw error; }
+      catch (error) {
+        await DB.prepare("UPDATE refund_requests SET status = 'failed', updated_at = ? WHERE id = ?").bind(new Date().toISOString(), id).run();
+        await writePaymentLabLog({ direction: "refund", provider: order.provider, eventType: "refund.submit.failed", orderNo, status: "failed", message: error instanceof Error ? error.message : "退款提交失败。", detail: { refundId: id } });
+        throw error;
+      }
       if (submitted.sandbox) {
         await processRefundedOrder(orderNo, `sandbox_refund_${crypto.randomUUID()}`);
+        await writePaymentLabLog({ direction: "refund", provider: order.provider, eventType: "refund.processed", orderNo, status: "refunded", message: "沙箱退款已完成。", detail: { refundId: id } });
         return Response.json({ saved: true, refund: { id, orderNo, amountCents: order.amount_cents, status: "refunded" } }, { status: 201 });
       }
       if (submitted.completed) {
         await processRefundedOrder(orderNo, submitted.providerRefundNo || id, { provider: order.provider, amountCents: order.amount_cents });
+        await writePaymentLabLog({ direction: "refund", provider: order.provider, eventType: "refund.processed", orderNo, status: "refunded", message: "支付平台退款已完成。", detail: { refundId: id, providerRefundNoPresent: Boolean(submitted.providerRefundNo) } });
         return Response.json({ saved: true, refund: { id, orderNo, amountCents: order.amount_cents, status: "refunded" } }, { status: 201 });
       }
       if (submitted.submitted) await DB.prepare("UPDATE refund_requests SET status = 'processing', updated_at = ? WHERE id = ?").bind(new Date().toISOString(), id).run();
+      await writePaymentLabLog({ direction: "refund", provider: order.provider, eventType: "refund.submitted", orderNo, status: submitted.submitted ? "processing" : "requested", message: submitted.submitted ? "退款已提交至支付平台。" : "退款申请已记录，等待处理。", detail: { refundId: id } });
       return Response.json({ saved: true, refund: { id, orderNo, amountCents: order.amount_cents, status: submitted.submitted ? "processing" : "requested" } }, { status: 201 });
     }
     if (action === "sandbox_refund") {
       if (payment.mode !== "sandbox") return Response.json({ error: "仅沙箱环境允许模拟退款。" }, { status: 403 });
-      const orderNo = typeof body.orderNo === "string" ? body.orderNo : ""; const result = await processRefundedOrder(orderNo, `sandbox_refund_${crypto.randomUUID()}`); return Response.json({ refunded: true, ...result });
+      const orderNo = typeof body.orderNo === "string" ? body.orderNo : ""; const result = await processRefundedOrder(orderNo, `sandbox_refund_${crypto.randomUUID()}`);
+      await writePaymentLabLog({ direction: "refund", provider: "sandbox", eventType: "sandbox.refund.confirmed", orderNo, status: "refunded", message: "沙箱退款已确认。" });
+      return Response.json({ refunded: true, ...result });
     }
     return Response.json({ error: "不支持的账单操作。" }, { status: 400 });
   } catch (error) { return routeError(error); }
