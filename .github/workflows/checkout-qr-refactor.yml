@@ -29,7 +29,7 @@ jobs:
       - name: Build
         run: npm run build
       - name: Payment regression
-        run: node --test tests/payment-crypto.test.mjs
+        run: node --experimental-loader=./tests/cloudflare-loader.mjs --test tests/payment-crypto.test.mjs
       - name: Validate boundaries
         run: |
           git diff --check
