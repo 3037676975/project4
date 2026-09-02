@@ -23,7 +23,6 @@ export type RuntimeBindings = {
   LOCAL_ADMIN_PASSWORD?: string;
   LOCAL_AUTH_SESSION_SECRET?: string;
   PARSER_API_KEY?: string;
-  INFINITY_API_KEY?: string;
   DEEPSEEK_API_KEY?: string;
   SMTP_ENABLED?: string;
   SMTP_HOST?: string;

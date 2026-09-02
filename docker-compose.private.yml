@@ -12,7 +12,6 @@ services:
       PLATFORM_ADMIN_EMAILS: ${LOCAL_AUTH_EMAIL:-admin@local.test}
       CONFIG_ENCRYPTION_KEY: ${CONFIG_ENCRYPTION_KEY:?run scripts/init-private first}
       PARSER_API_KEY: ${PARSER_API_KEY:?run scripts/init-private first}
-      INFINITY_API_KEY: ${INFINITY_API_KEY:?run scripts/init-private first}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SMTP_ENABLED: ${SMTP_ENABLED:-true}
       SMTP_HOST: ${SMTP_HOST:-smtp.qq.com}
@@ -92,29 +91,6 @@ services:
       timeout: 5s
       retries: 12
 
-  embedding:
-    profiles: ["infinity"]
-    image: michaelf34/infinity:latest-cpu
-    command: ["v2", "--model-id", "BAAI/bge-m3", "--model-id", "BAAI/bge-reranker-v2-m3", "--served-model-name", "BAAI/bge-m3", "--served-model-name", "BAAI/bge-reranker-v2-m3", "--batch-size", "2", "--batch-size", "2", "--engine", "torch", "--no-compile", "--port", "7997", "--url-prefix", "/v1", "--api-key", "${INFINITY_API_KEY}"]
-    environment:
-      HF_HOME: /app/.cache
-      INFINITY_ANONYMOUS_USAGE_STATS: "0"
-      OMP_NUM_THREADS: "2"
-      MKL_NUM_THREADS: "2"
-      TOKENIZERS_PARALLELISM: "false"
-    ports:
-      - "127.0.0.1:7997:7997"
-    restart: unless-stopped
-    shm_size: 2gb
-    volumes:
-      - infinity-cache:/app/.cache
-    healthcheck:
-      test: ["CMD", "python", "-c", "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:7997/v1/models',headers={'Authorization':'Bearer '+os.environ['INFINITY_API_KEY']}); urllib.request.urlopen(r,timeout=5)"]
-      interval: 20s
-      timeout: 8s
-      retries: 30
-      start_period: 300s
-
   operations-sweeper:
     image: curlimages/curl:8.15.0
     environment:
@@ -128,4 +104,3 @@ volumes:
   knowflow-state:
   qdrant-data:
   docling-cache:
-  infinity-cache:

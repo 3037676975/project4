@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       if (config.dimensions && dimensions !== config.dimensions) {
         return Response.json({ ok: false, error: `服务返回 ${dimensions} 维，但当前配置为 ${config.dimensions} 维。` }, { status: 422 });
       }
-      return Response.json({ ok: true, message: `${config.provider === "infinity" ? "BGE-M3 / Infinity" : "OpenAI"} 向量连接成功`, dimensions });
+      return Response.json({ ok: true, message: `${config.provider === "siliconflow" ? "BGE-M3 / 硅基流动" : "OpenAI"} 向量连接成功`, dimensions });
     }
 
     if (kind === "rerank") {

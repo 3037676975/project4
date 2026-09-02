@@ -65,14 +65,14 @@ export async function ensurePlatformProviderConfigs(admin: PlatformContext) {
 
   if (!present.has("rerank")) {
     const embedding = await DB.prepare(`SELECT base_url, api_key_hint FROM platform_provider_configs
-      WHERE kind = 'embedding' AND provider = 'infinity' AND status = 'active' LIMIT 1`)
+      WHERE kind = 'embedding' AND provider = 'siliconflow' AND status = 'active' LIMIT 1`)
       .first<{ base_url: string; api_key_hint: string | null }>();
     if (embedding) {
       await DB.prepare(`INSERT OR IGNORE INTO platform_provider_configs
         (id, kind, provider, base_url, model, secondary_model, dimensions, api_key_ciphertext, api_key_iv, api_key_hint,
          credential_id_ciphertext, credential_id_iv, credential_id_hint, region, reuse_api_key_from, candidate_count, top_n,
          status, updated_by_admin_id, created_at, updated_at)
-        VALUES ('pprov_rerank', 'rerank', 'infinity', ?, 'BAAI/bge-reranker-v2-m3', NULL, NULL, NULL, NULL, ?,
+        VALUES ('pprov_rerank', 'rerank', 'siliconflow', ?, 'BAAI/bge-reranker-v2-m3', NULL, NULL, NULL, NULL, ?,
           NULL, NULL, NULL, NULL, 'embedding', 12, 3, 'active', ?, ?, ?)`)
         .bind(embedding.base_url, embedding.api_key_hint, admin.id, now, now).run();
       present.add("rerank");

@@ -7,7 +7,7 @@
 - 资料：PDF、DOCX、XLSX、PPTX、图片、TXT、Markdown、CSV、JSON 与粘贴文本。
 - 解析：原生 PDF / XLSX 优先；图片、逐页扫描 PDF 与表格图片/PDF 可分别选择文字 OCR 或结构化表格 OCR；Office 复杂版式调用 Docling + RapidOCR。
 - RAG：带重叠的分块、批量 Embedding、混合检索、独立 Rerank、最低可靠度门槛、无依据拒答和标准题回归测试。
-- 开源向量：Infinity 提供 OpenAI 兼容 API，默认模型 `BAAI/bge-m3`，1024 维。
+- 向量与重排：默认调用硅基流动 HTTPS API，Embedding 使用 `BAAI/bge-m3`（1024 维），Rerank 使用 `BAAI/bge-reranker-v2-m3`；Project4 私有服务器不下载这两个模型。
 - 对外 API：客户 API Key、OpenAI 兼容 `models`、`chat/completions`、`responses`、`embeddings`、SSE 与 Trace。
 - SaaS：企业注册、独立账号密码、直接创建成员、RBAC、租户切换、离职禁用、套餐、订阅、月配额、Credits 与 R2 原文件存储。
 - 三套后台：`/platform` 仅超级管理员经营平台并统一配置 DeepSeek、Embedding、Rerank、OCR 与 SMTP；`/admin` 供运营、财务、客服和风控处理任务；`/workspace` 供企业客户管理资料、成员、账单和客服运营，不能查看或修改平台密钥。
@@ -45,16 +45,20 @@ bash scripts/init-private.sh
 .\scripts\init-private.ps1
 ```
 
-脚本会生成仅本机使用的 `.env.private`，并在终端显示一次 `admin@local.test` 的随机超级管理员初始密码；随后自动执行 D1 迁移并启动 KnowFlow、Qdrant、邮件中继、每分钟运营巡检，以及低资源 CPU Infinity（`BAAI/bge-m3` + `BAAI/bge-reranker-v2-m3`）。Docling / RapidOCR 独立为 `parser` profile，不会在 4G 服务器的普通部署中自动构建。访问 `http://localhost:3000/login` 后用初始账号密码登录，系统会创建站内超级管理员并强制修改密码。本地支付采用沙箱；正式微信/支付宝收款必须另外配置商户网关。
+脚本会生成仅本机使用的 `.env.private`，随后自动执行 D1 迁移并启动 KnowFlow、Qdrant、邮件中继与每分钟运营巡检。Embedding / Rerank 由超级管理员在平台后台填写硅基流动 API Key 后直接调用云 API，本机不下载 BGE 模型。Docling / RapidOCR 仍独立为 `parser` profile，不会在普通部署中自动构建。访问 `http://localhost:3000/login` 后用初始账号密码登录，系统会创建站内超级管理员并强制修改密码。本地支付采用沙箱；正式微信/支付宝收款必须另外配置商户网关。
 
 线上首次部署时，站点所有者打开 `/setup` 完成一次身份确认并自行创建超级管理员密码；以后超级管理员从 `/platform/login`、内部管理员从 `/admin/login`、企业账号从 `/workspace/login` 登录。密码永远不以明文写入数据库，只保存带随机盐的哈希。`PLATFORM_ADMIN_EMAILS` 只用于保护首次激活邮箱；内部管理员和企业成员由各自后台直接创建账号与临时密码。
 
 
-### 2 核 4G 私有服务器的模型服务
+### Embedding / Rerank（硅基流动 API）
 
-默认部署会单独启动 `embedding` 容器，使用 Infinity CPU 镜像同时提供 `BAAI/bge-m3` Embedding 与 `BAAI/bge-reranker-v2-m3` Rerank；批量大小限制为 2，并关闭 `torch.compile`，降低首次加载的内存峰值。模型保存在 `infinity-cache` 卷中，后续重建无需重复下载。Infinity 启动失败不会让 KnowFlow 主站退出。
+Project4 私有部署不再启动 Infinity，也不会在服务器下载 `BAAI/bge-m3` 或 `BAAI/bge-reranker-v2-m3`。超级管理员进入 **平台控制台 → 模型服务**：
 
-Docling / RapidOCR 不跟随 Infinity 启动。如服务器后续扩容并确需本地复杂文档解析，再单独执行：
+1. Embedding 选择“硅基流动 / BGE-M3”，填写一次硅基流动 API Key 并保存、测试。
+2. Rerank 使用“硅基流动 / BGE-Reranker”，默认复用 Embedding 的同一 API Key。
+3. Qdrant 仍保留在本机用于向量存储；模型推理由硅基流动承担，因此不会占用本机模型内存和模型磁盘缓存。
+
+Docling / RapidOCR 仍是可选的独立 `parser` profile。确需本地复杂文档解析时再单独启动：
 
 ```bash
 docker compose --env-file .env.private -f docker-compose.private.yml --profile parser up -d --build document-parser

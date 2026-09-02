@@ -22,7 +22,6 @@ if (-not (Test-Path $EnvFile)) {
     "LOCAL_ADMIN_PASSWORD=$GeneratedPassword"
     "LOCAL_AUTH_SESSION_SECRET=$sessionSecret"
     "PARSER_API_KEY=$(New-HexSecret)"
-    "INFINITY_API_KEY=$(New-HexSecret)"
     "DEEPSEEK_API_KEY="
     "QDRANT_API_KEY=$(New-HexSecret)"
     "PAYMENT_CALLBACK_SECRET=$(New-HexSecret)"

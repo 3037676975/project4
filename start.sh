@@ -21,11 +21,6 @@ else
   docker compose --env-file .env.private -f docker-compose.private.yml up -d --build
 fi
 
-echo "[Project4] 正在启动低资源 Infinity（BGE-M3 + BGE-Reranker）；失败不会影响主站..."
-if ! docker compose --env-file .env.private -f docker-compose.private.yml --profile infinity up -d embedding; then
-  echo "[Project4] Infinity 暂未启动成功；KnowFlow 核心服务保持运行，可稍后单独重试 embedding。"
-fi
-
 echo
 echo "[Project4] 当前核心容器状态："
 docker compose --env-file .env.private -f docker-compose.private.yml ps || true
@@ -38,8 +33,8 @@ echo "[Project4] 平台后台：      http://186.244.245.177:28441/platform"
 echo "[Project4] 内部管理后台：  http://186.244.245.177:28441/admin"
 echo "[Project4] 企业工作台：    http://186.244.245.177:28441/workspace"
 echo
-echo "[Project4] 当前默认启动：KnowFlow + Qdrant + Email Relay + Operations Sweeper + Infinity"
-echo "[Project4] Infinity 使用 CPU 低批量模式加载 BGE-M3 与 BGE-Reranker；模型缓存会持久化。"
+echo "[Project4] 当前默认启动：KnowFlow + Qdrant + Email Relay + Operations Sweeper"
+echo "[Project4] Embedding / Rerank 使用硅基流动 HTTPS API，不在本机下载或加载模型。"
 echo "[Project4] Docling / RapidOCR 保持独立，不会被普通部署构建；确需启用时单独执行："
 echo "docker compose --env-file .env.private -f docker-compose.private.yml --profile parser up -d --build document-parser"
 echo

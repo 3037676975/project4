@@ -16,8 +16,8 @@ type ProviderResponse = {
 type ServiceHealth = { checkedAt: string; services: Array<{ id: string; name: string; status: "healthy" | "degraded" | "stopped"; detail: string }> };
 
 const initialGeneration: ProviderConfig = { kind: "generation", provider: "deepseek", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash", secondaryModel: null, dimensions: null, configured: false, keyHint: null, updatedAt: null };
-const initialEmbedding: ProviderConfig = { kind: "embedding", provider: "infinity", baseUrl: "https://embedding.example.com/v1", model: "BAAI/bge-m3", secondaryModel: null, dimensions: 1024, configured: false, keyHint: null, updatedAt: null };
-const initialRerank: ProviderConfig = { kind: "rerank", provider: "infinity", baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-reranker-v2-m3", secondaryModel: null, dimensions: null, configured: false, keyHint: null, updatedAt: null, reuseEmbeddingKey: true, candidateCount: 12, topN: 3 };
+const initialEmbedding: ProviderConfig = { kind: "embedding", provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", secondaryModel: null, dimensions: 1024, configured: false, keyHint: null, updatedAt: null };
+const initialRerank: ProviderConfig = { kind: "rerank", provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-reranker-v2-m3", secondaryModel: null, dimensions: null, configured: false, keyHint: null, updatedAt: null, reuseEmbeddingKey: true, candidateCount: 12, topN: 3 };
 const initialOcr: ProviderConfig = { kind: "ocr", provider: "docling", baseUrl: "https://parser.example.com", model: "rapidocr", secondaryModel: null, dimensions: null, configured: false, keyHint: null, credentialIdHint: null, region: null, updatedAt: null };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -56,7 +56,7 @@ export default function PlatformProviderSettings() {
   function switchProvider(kind: "embedding" | "ocr", provider: string) {
     if (kind === "embedding") setEmbedding(provider === "openai"
       ? { ...embedding, provider, baseUrl: "https://api.openai.com/v1", model: "text-embedding-3-small", dimensions: 1536, configured: false, keyHint: null }
-      : { ...embedding, provider: "infinity", baseUrl: "https://embedding.example.com/v1", model: "BAAI/bge-m3", dimensions: 1024, configured: false, keyHint: null });
+      : { ...embedding, provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", dimensions: 1024, configured: false, keyHint: null });
     else {
       const presets: Record<string, Partial<ProviderConfig>> = {
         docling: { provider: "docling", baseUrl: "https://parser.example.com", model: "rapidocr", region: null },
@@ -70,10 +70,8 @@ export default function PlatformProviderSettings() {
     clearSecrets(kind);
   }
 
-  function switchRerankProvider(provider: string) {
-    setRerank(provider === "infinity"
-      ? { ...rerank, provider, baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-reranker-v2-m3", reuseEmbeddingKey: true, configured: false, keyHint: null }
-      : { ...rerank, provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-reranker-v2-m3", reuseEmbeddingKey: false, configured: false, keyHint: null });
+  function switchRerankProvider() {
+    setRerank({ ...rerank, provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-reranker-v2-m3", reuseEmbeddingKey: true, configured: false, keyHint: null });
     clearSecrets("rerank");
   }
 
@@ -99,18 +97,18 @@ export default function PlatformProviderSettings() {
     const title = kind === "generation" ? "DeepSeek 生成模型" : kind === "embedding" ? "Embedding 向量服务" : kind === "rerank" ? "Rerank 重排服务" : "OCR 与文档解析";
     const kicker = kind === "generation" ? "Generation" : kind === "embedding" ? "Platform embedding" : kind === "rerank" ? "Precision reranking" : "Multi-provider OCR";
     const modelLabel = kind === "generation" ? "生成模型" : kind === "embedding" ? "Embedding 模型" : kind === "rerank" ? "Rerank 模型" : "OCR 接口 / 引擎";
-    const selfHosted = config.provider === "infinity" || config.provider === "docling" || config.provider === "compatible";
+    const selfHosted = config.provider === "docling" || config.provider === "compatible";
     const cloudPair = kind === "ocr" && (config.provider === "baidu" || config.provider === "tencent");
     const reusingEmbeddingKey = kind === "rerank" && Boolean(config.reuseEmbeddingKey);
     const credentialLabel = config.provider === "baidu" ? "百度云 API Key" : "腾讯云 SecretId";
-    const secretLabel = config.provider === "baidu" ? "百度云 Secret Key" : config.provider === "tencent" ? "腾讯云 SecretKey" : kind === "rerank" ? (config.provider === "infinity" ? "Infinity 服务 Token" : "硅基流动 API Key") : selfHosted ? "服务 Token" : "API Key";
+    const secretLabel = config.provider === "baidu" ? "百度云 Secret Key" : config.provider === "tencent" ? "腾讯云 SecretKey" : (kind === "embedding" || kind === "rerank") && config.provider === "siliconflow" ? "硅基流动 API Key" : selfHosted ? "服务 Token" : "API Key";
     const setConfig = (next: ProviderConfig) => storeProvider(kind, next);
-    const fixedUrl = kind === "generation" || (kind === "rerank" && config.provider === "siliconflow") || config.provider === "openai" || config.provider === "baidu" || config.provider === "tencent";
+    const fixedUrl = kind === "generation" || config.provider === "siliconflow" || config.provider === "openai" || config.provider === "baidu" || config.provider === "tencent";
     return <section className="card form-card provider-card" key={kind}><div className="card-head"><div><p className="section-kicker">{kicker}</p><h2>{title}</h2></div><span className={config.configured ? "live-badge" : "warn-badge"}>{config.configured ? "平台已配置" : "待配置"}</span></div><form className="settings-form" onSubmit={(event) => saveProvider(event, kind)}>
-      {kind === "embedding" && <><label>服务方式<span>支持自建服务或兼容的向量 API</span></label><select value={config.provider} onChange={(event) => switchProvider("embedding", event.target.value)}><option value="infinity">Infinity / BGE-M3 兼容 API</option><option value="openai">OpenAI API</option></select></>}
-      {kind === "rerank" && <><label>服务方式<span>默认复用本机 Infinity，也可切换硅基流动</span></label><select value={config.provider} onChange={(event) => switchRerankProvider(event.target.value)}><option value="infinity">本机 Infinity / BGE-Reranker</option><option value="siliconflow">硅基流动 / BGE-Reranker</option></select></>}
+      {kind === "embedding" && <><label>服务方式<span>默认使用硅基流动云 API，不在服务器下载模型</span></label><select value={config.provider} onChange={(event) => switchProvider("embedding", event.target.value)}><option value="siliconflow">硅基流动 / BGE-M3</option><option value="openai">OpenAI API</option></select></>}
+      {kind === "rerank" && <><label>服务方式<span>使用硅基流动云 API，可复用 Embedding 的同一 API Key</span></label><select value="siliconflow" onChange={() => switchRerankProvider()}><option value="siliconflow">硅基流动 / BGE-Reranker</option></select></>}
       {kind === "ocr" && <><label>服务方式<span>云服务使用各自官方鉴权；兼容服务使用 Bearer Token</span></label><select value={config.provider} onChange={(event) => switchProvider("ocr", event.target.value)}><option value="docling">自建 Docling / RapidOCR</option><option value="baidu">百度智能云 OCR</option><option value="tencent">腾讯云 OCR</option><option value="openai">OpenAI 文档视觉</option><option value="compatible">通用兼容 OCR API</option></select></>}
-      <label>API Base URL<span>{fixedUrl ? "官方 HTTPS 地址已锁定，防止密钥发送到错误服务器" : config.provider === "infinity" ? "私有部署可使用 Docker 内网地址；公网部署仍建议 HTTPS" : "填写公网 HTTPS 服务地址，禁止内网地址"}</span></label><input value={config.baseUrl} readOnly={fixedUrl} onChange={(event) => setConfig({ ...config, baseUrl: event.target.value })}/>
+      <label>API Base URL<span>{fixedUrl ? "官方 HTTPS 地址已锁定，防止密钥发送到错误服务器" : "填写公网 HTTPS 服务地址，禁止内网地址"}</span></label><input value={config.baseUrl} readOnly={fixedUrl} onChange={(event) => setConfig({ ...config, baseUrl: event.target.value })}/>
       <label>{modelLabel}</label>
       {kind === "ocr" && config.provider === "baidu" ? (
         <select value={config.model} onChange={(event) => setConfig({ ...config, model: event.target.value })}>

@@ -24,8 +24,8 @@ const DEFAULTS: Record<ProviderKind, {
   dimensions: number | null; region: string | null;
 }> = {
   generation: { provider: "deepseek", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash", secondaryModel: null, dimensions: null, region: null },
-  embedding: { provider: "infinity", baseUrl: "https://embedding.example.com/v1", model: "BAAI/bge-m3", secondaryModel: null, dimensions: 1024, region: null },
-  rerank: { provider: "infinity", baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-reranker-v2-m3", secondaryModel: null, dimensions: null, region: null },
+  embedding: { provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", secondaryModel: null, dimensions: 1024, region: null },
+  rerank: { provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-reranker-v2-m3", secondaryModel: null, dimensions: null, region: null },
   ocr: { provider: "docling", baseUrl: "https://parser.example.com", model: "rapidocr", secondaryModel: null, dimensions: null, region: null },
 };
 
@@ -37,17 +37,18 @@ function parseKind(value: unknown): ProviderKind {
 function allowedProvider(kind: ProviderKind, value: unknown) {
   const provider = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (kind === "generation") return "deepseek";
-  if (kind === "embedding" && (provider === "infinity" || provider === "openai")) return provider;
-  if (kind === "rerank" && (provider === "siliconflow" || provider === "infinity")) return provider;
+  if (kind === "embedding" && (provider === "siliconflow" || provider === "openai")) return provider;
+  if (kind === "rerank" && provider === "siliconflow") return provider;
   if (kind === "ocr" && ["docling", "compatible", "openai", "baidu", "tencent"].includes(provider)) return provider;
-  if (kind === "embedding") throw new Error("Embedding 仅支持 Infinity 或 OpenAI。");
-  if (kind === "rerank") throw new Error("Rerank 仅支持本机 Infinity 或硅基流动。");
+  if (kind === "embedding") throw new Error("Embedding 仅支持硅基流动或 OpenAI。");
+  if (kind === "rerank") throw new Error("Rerank 仅支持硅基流动官方 API。");
   throw new Error("OCR 服务商无效。");
 }
 
 function normalizeBaseUrl(kind: ProviderKind, provider: string, value: string) {
   if (kind === "generation") return normalizeDeepSeekBaseUrl(value);
-  if (kind === "rerank") return provider === "siliconflow" ? normalizeSiliconFlowBaseUrl(value) : normalizeSelfHostedBaseUrl(value, "自建 Rerank 地址");
+  if ((kind === "embedding" || kind === "rerank") && provider === "siliconflow") return normalizeSiliconFlowBaseUrl(value);
+  if (kind === "rerank") return normalizeSiliconFlowBaseUrl(value);
   if (kind === "ocr" && provider === "baidu") return normalizeBaiduOcrBaseUrl(value);
   if (kind === "ocr" && provider === "tencent") return normalizeTencentOcrBaseUrl(value);
   if (provider === "openai") return normalizeEmbeddingBaseUrl(value);
@@ -118,6 +119,8 @@ export async function POST(request: Request) {
     catch (error) { return Response.json({ error: error instanceof Error ? error.message : "服务商无效。" }, { status: 400 }); }
     const model = typeof payload.model === "string" ? payload.model.trim() : "";
     if (!/^[a-zA-Z0-9._/-]{2,160}$/.test(model)) return Response.json({ error: "模型或引擎名称格式不正确。" }, { status: 400 });
+    if (kind === "embedding" && provider === "siliconflow" && model !== "BAAI/bge-m3") return Response.json({ error: "硅基流动 Embedding 固定使用 BAAI/bge-m3。" }, { status: 400 });
+    if (kind === "rerank" && provider === "siliconflow" && model !== "BAAI/bge-reranker-v2-m3") return Response.json({ error: "硅基流动 Rerank 固定使用 BAAI/bge-reranker-v2-m3。" }, { status: 400 });
     if (kind === "ocr" && provider === "baidu" && !["general_basic", "accurate_basic"].includes(model)) return Response.json({ error: "百度云 OCR 支持 general_basic 或 accurate_basic。" }, { status: 400 });
     if (kind === "ocr" && provider === "tencent" && !["GeneralBasicOCR", "GeneralAccurateOCR", "GeneralFastOCR", "GeneralHandwritingOCR"].includes(model)) return Response.json({ error: "腾讯云 OCR 接口不在允许列表中。" }, { status: 400 });
     const secondaryModel = kind === "ocr" && provider === "baidu" ? (typeof payload.secondaryModel === "string" && payload.secondaryModel ? payload.secondaryModel : "table")
@@ -129,7 +132,7 @@ export async function POST(request: Request) {
     catch (error) { return Response.json({ error: error instanceof Error ? error.message : "API 地址无效。" }, { status: 400 }); }
     const dimensions = kind === "embedding" ? Number(payload.dimensions ?? DEFAULTS.embedding.dimensions) : null;
     if (kind === "embedding" && (!Number.isInteger(dimensions) || Number(dimensions) < 256 || Number(dimensions) > 4096)) return Response.json({ error: "向量维度应在 256 到 4096 之间。" }, { status: 400 });
-    if (kind === "embedding" && provider === "infinity" && model === "BAAI/bge-m3" && dimensions !== 1024) return Response.json({ error: "BAAI/bge-m3 的向量维度固定为 1024。" }, { status: 400 });
+    if (kind === "embedding" && provider === "siliconflow" && model === "BAAI/bge-m3" && dimensions !== 1024) return Response.json({ error: "BAAI/bge-m3 的向量维度固定为 1024。" }, { status: 400 });
     const candidateCount = kind === "rerank" ? Number(payload.candidateCount ?? 12) : null;
     const topN = kind === "rerank" ? Number(payload.topN ?? 3) : null;
     if (kind === "rerank" && (!Number.isInteger(candidateCount) || Number(candidateCount) < 2 || Number(candidateCount) > 50)) return Response.json({ error: "Rerank 候选数量应在 2 到 50 之间。" }, { status: 400 });
@@ -176,7 +179,7 @@ export async function POST(request: Request) {
       ciphertext = null; iv = null; keyHint = embeddingSecret.api_key_hint; credentialCiphertext = null; credentialIv = null; credentialIdHint = null; reuseApiKeyFrom = "embedding";
     }
     if (!reuseEmbeddingKey && (!ciphertext || !iv)) {
-      const label = kind === "generation" ? "DeepSeek API Key" : kind === "embedding" ? "Embedding 服务 Token" : kind === "rerank" ? "Rerank API Key" : provider === "baidu" ? "百度云 Secret Key" : provider === "tencent" ? "腾讯云 SecretKey" : "OCR 服务 Token";
+      const label = kind === "generation" ? "DeepSeek API Key" : kind === "embedding" ? "Embedding API Key" : kind === "rerank" ? "Rerank API Key" : provider === "baidu" ? "百度云 Secret Key" : provider === "tencent" ? "腾讯云 SecretKey" : "OCR 服务 Token";
       return Response.json({ error: `请填写 ${label}。` }, { status: 400 });
     }
     if (needsCredentialId(kind, provider) && (!credentialCiphertext || !credentialIv)) return Response.json({ error: provider === "baidu" ? "请填写百度云 API Key。" : "请填写腾讯云 SecretId。" }, { status: 400 });

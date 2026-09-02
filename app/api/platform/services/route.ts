@@ -1,4 +1,5 @@
 import { requirePlatformAdmin, platformRouteError } from "../../../../lib/platform-admin";
+import { loadPlatformProviderRows } from "../../../../lib/platform-provider";
 import { getRuntime } from "../../../../lib/runtime";
 
 type ServiceState = { id: string; name: string; status: "healthy" | "degraded" | "stopped"; detail: string };
@@ -18,19 +19,17 @@ export async function GET(request: Request) {
   try {
     await requirePlatformAdmin(request, ["super_admin"]);
     const runtime = getRuntime();
-    const bearer: Record<string, string> = runtime.INFINITY_API_KEY ? { Authorization: `Bearer ${runtime.INFINITY_API_KEY}` } : {};
-    const services = await Promise.all([
-      jsonHealth("embedding", "Embedding", "http://embedding:7997/v1/models", bearer, (data) => {
-        const models = Array.isArray(data.data) ? data.data as Array<{ id?: string }> : [];
-        return models.some((item) => item.id === "BAAI/bge-m3") ? "BGE-M3 · 1024 维" : "服务在线，模型仍在加载";
-      }),
-      jsonHealth("rerank", "Rerank", "http://embedding:7997/v1/models", bearer, (data) => {
-        const models = Array.isArray(data.data) ? data.data as Array<{ id?: string }> : [];
-        return models.some((item) => item.id === "BAAI/bge-reranker-v2-m3") ? "BGE-Reranker v2-m3" : "服务在线，模型仍在加载";
-      }),
-      jsonHealth("parser", "文档解析", "http://document-parser:8001/health", runtime.PARSER_API_KEY ? { Authorization: `Bearer ${runtime.PARSER_API_KEY}` } : {}, (data) => String(data.engine || "Docling + RapidOCR")),
-      jsonHealth("qdrant", "向量数据库", `${(runtime.QDRANT_URL || "http://qdrant:6333").replace(/\/$/, "")}/collections`, runtime.QDRANT_API_KEY ? { "api-key": runtime.QDRANT_API_KEY } : {}, () => "Qdrant 集合服务正常"),
-    ]);
+    const rows = await loadPlatformProviderRows();
+    const embedding = rows.find((row) => row.kind === "embedding");
+    const rerank = rows.find((row) => row.kind === "rerank");
+    const embeddingReady = embedding?.provider === "siliconflow" && Boolean(embedding.api_key_hint);
+    const rerankReady = rerank?.provider === "siliconflow" && Boolean(rerank.api_key_hint || (rerank.reuse_api_key_from === "embedding" && embeddingReady));
+    const services: ServiceState[] = [
+      { id: "embedding", name: "Embedding", status: embeddingReady ? "healthy" : embedding ? "degraded" : "stopped", detail: embeddingReady ? "硅基流动 · BAAI/bge-m3 · API 已配置" : "等待配置硅基流动 API Key" },
+      { id: "rerank", name: "Rerank", status: rerankReady ? "healthy" : rerank ? "degraded" : "stopped", detail: rerankReady ? "硅基流动 · BAAI/bge-reranker-v2-m3" : "等待配置或复用 Embedding API Key" },
+      await jsonHealth("parser", "文档解析", "http://document-parser:8001/health", runtime.PARSER_API_KEY ? { Authorization: `Bearer ${runtime.PARSER_API_KEY}` } : {}, (data) => String(data.engine || "Docling + RapidOCR")),
+      await jsonHealth("qdrant", "向量数据库", `${(runtime.QDRANT_URL || "http://qdrant:6333").replace(/\/$/, "")}/collections`, runtime.QDRANT_API_KEY ? { "api-key": runtime.QDRANT_API_KEY } : {}, () => "Qdrant 集合服务正常"),
+    ];
     return Response.json({ checkedAt: new Date().toISOString(), services });
   } catch (error) { return platformRouteError(error); }
 }

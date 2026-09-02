@@ -26,7 +26,7 @@ export function normalizeEmbeddingBaseUrl(value: string) {
 
 export function normalizeSiliconFlowBaseUrl(value: string) {
   const url = new URL(value.trim());
-  if (url.protocol !== "https:" || url.hostname !== "api.siliconflow.cn") throw new Error("Rerank 当前仅允许硅基流动官方 HTTPS API 地址");
+  if (url.protocol !== "https:" || url.hostname !== "api.siliconflow.cn") throw new Error("Embedding / Rerank 当前仅允许硅基流动官方 HTTPS API 地址");
   if (url.pathname !== "/v1" && url.pathname !== "/v1/") throw new Error("API 地址应为 https://api.siliconflow.cn/v1");
   return `${url.origin}/v1`;
 }
