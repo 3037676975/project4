@@ -1,7 +1,7 @@
 import { extractText, getDocumentProxy } from "unpdf";
 import { BUILTIN_MANUAL } from "../../../lib/knowledge";
 import { ensureDefaultCategory, requireCategory, resolveKnowledgeBase } from "../../../lib/knowledge-spaces";
-import { indexDocument, parseDocumentWithConfiguredOcr } from "../../../lib/rag";
+import { ensureBuiltinChunks, indexDocument, parseDocumentWithConfiguredOcr } from "../../../lib/rag";
 import { loadProviderConfig } from "../../../lib/provider";
 import { getRuntime } from "../../../lib/runtime";
 import { getOrCreateTenant, requireRole, routeError } from "../../../lib/tenant";
@@ -51,6 +51,7 @@ export async function GET(request: Request) {
       chunkCount: Number(row.chunk_count), ocrUsed: Boolean(row.ocr_used), createdAt: row.created_at, builtIn: false,
     }));
     if (kb.is_default && await isBuiltinManualVisible()) {
+      if (inheritedEmbedding) await ensureBuiltinChunks(context.tenantId, kb.id).catch((error) => console.error("[knowflow-rag] builtin manual embedding repair failed", error));
       const builtin = await DB.prepare(`SELECT COUNT(*) AS count, MAX(embedding_model) AS model
         FROM knowledge_chunks WHERE tenant_id = ? AND knowledge_base_id = ? AND document_id = ?`)
         .bind(context.tenantId, kb.id, BUILTIN_MANUAL.id).first<{ count: number; model: string | null }>();

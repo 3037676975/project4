@@ -107,11 +107,17 @@ export async function indexDocument(input: {
 
 export async function ensureBuiltinChunks(tenantId: string, knowledgeBaseId: string) {
   const runtime = getRuntime();
-  const existing = await runtime.DB.prepare("SELECT COUNT(*) AS count FROM knowledge_chunks WHERE tenant_id = ? AND knowledge_base_id = ? AND document_id = ?")
-    .bind(tenantId, knowledgeBaseId, BUILTIN_MANUAL.id).first<{ count: number }>();
-  if ((existing?.count ?? 0) > 0) return;
+  const existing = await runtime.DB.prepare("SELECT COUNT(*) AS count, MAX(embedding_model) AS model FROM knowledge_chunks WHERE tenant_id = ? AND knowledge_base_id = ? AND document_id = ?")
+    .bind(tenantId, knowledgeBaseId, BUILTIN_MANUAL.id).first<{ count: number; model: string | null }>();
+  if ((existing?.count ?? 0) > 0 && existing?.model) return;
   const chunks = splitIntoChunks(BUILTIN_MANUAL.content);
   const embedded = await embedTexts(tenantId, chunks).catch(() => null);
+  if ((existing?.count ?? 0) > 0) {
+    if (!embedded) return;
+    await deleteQdrantDocument(tenantId, knowledgeBaseId, BUILTIN_MANUAL.id).catch(() => undefined);
+    await runtime.DB.prepare("DELETE FROM knowledge_chunks WHERE tenant_id = ? AND knowledge_base_id = ? AND document_id = ?")
+      .bind(tenantId, knowledgeBaseId, BUILTIN_MANUAL.id).run();
+  }
   const now = new Date().toISOString(); const rows = chunks.map((content, index) => ({ id: crypto.randomUUID(), content, index, vector: embedded?.vectors[index] ?? null }));
   const qdrantStored = embedded && qdrantConfigured() ? await upsertQdrantPoints(rows.flatMap((row) => row.vector ? [{ id: row.id, vector: row.vector, payload: {
     tenant_id: tenantId, knowledge_base_id: knowledgeBaseId, category_id: `cat_default_${knowledgeBaseId}`,
