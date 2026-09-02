@@ -1,7 +1,7 @@
 import { encryptSecret } from "../../../../lib/crypto";
 import { paymentState } from "../../../../lib/billing";
 import { loadPaymentConfig, paymentConfigReady, type PaymentConfig, type PaymentDetails, type PaymentProvider } from "../../../../lib/payment-config";
-import { validateRsaPrivateKey, validateRsaPublicKey } from "../../../../lib/payment-crypto";
+import { queryPaymentProvider } from "../../../../lib/payment-lab";
 import { requirePlatformAdmin, platformRouteError, writePlatformAudit } from "../../../../lib/platform-admin";
 import { getRuntime } from "../../../../lib/runtime";
 import { hmacSha256 } from "../../../../lib/security";
@@ -92,38 +92,44 @@ export async function POST(request: Request) {
         if (!probe.ok) return Response.json({ error: probe.message, code: probe.code }, { status: 409 });
         return Response.json({ ok: true, code: probe.code, message: "微信支付配置正常。AppID、商户号、API V2 Key、签名和服务器网络均已验证通过。" });
       }
-      if (!paymentConfigReady(config)) return Response.json({ error: "请先补齐该渠道的正式商户参数并保存。" }, { status: 409 });
       if (provider === "alipay") {
-        await validateRsaPrivateKey(config.details.appPrivateKey || ""); await validateRsaPublicKey(config.details.alipayPublicKey || "");
-      } else await hmacSha256(config.details.callbackSecret || "", `knowflow-payment-self-test\n${Date.now()}`);
-      return Response.json({ ok: true, message: `${config.details.displayName || config.merchantName || provider} 本地签名、密钥格式和必填参数校验通过（未产生真实扣款）。` });
+        if (!paymentConfigReady(config)) return Response.json({ error: "请先填写并保存支付宝 AppID、应用私钥和支付宝公钥。" }, { status: 409 });
+        const probeOrderNo = `KFCHECK${Date.now()}${Math.floor(Math.random() * 10000)}`.slice(0, 32);
+        const probe = await queryPaymentProvider(probeOrderNo, "alipay");
+        if (!probe.signatureValid) return Response.json({ error: "支付宝响应验签失败，请检查支付宝公钥。" }, { status: 409 });
+        return Response.json({ ok: true, message: "支付宝配置正常。AppID、应用私钥、支付宝公钥、签名和服务器网络均已验证通过。" });
+      }
+      if (!paymentConfigReady(config)) return Response.json({ error: "请先补齐该渠道的正式商户参数并保存。" }, { status: 409 });
+      await hmacSha256(config.details.callbackSecret || "", `knowflow-payment-self-test\n${Date.now()}`);
+      return Response.json({ ok: true, message: `${config.details.displayName || config.merchantName || provider} 本地签名和必填参数校验通过（未产生真实扣款）。` });
     }
     if (action !== "save") return Response.json({ error: "不支持的支付配置操作。" }, { status: 400 });
     const current = await loadPaymentConfig(provider); const existing = current.details; const preset = defaults(provider);
-    const mode = provider === "wechat" ? "production" : (body.mode === "sandbox" || body.mode === "production" ? body.mode : "disabled");
-    const merchantName = provider === "wechat" ? "微信支付" : text(body.merchantName, 80);
+    const nativeProvider = provider === "wechat" || provider === "alipay";
+    const mode = nativeProvider ? "production" : (body.mode === "sandbox" || body.mode === "production" ? body.mode : "disabled");
+    const merchantName = provider === "wechat" ? "微信支付" : provider === "alipay" ? "支付宝" : text(body.merchantName, 80);
     const merchantId = text(body.merchantId, 160);
-    const checkoutUrl = provider === "wechat" ? preset.checkoutUrl : secureUrl(body.checkoutUrl || preset.checkoutUrl, mode === "production");
-    const refundUrl = provider === "wechat" ? "" : secureUrl(body.refundUrl || preset.refundUrl);
+    const checkoutUrl = nativeProvider ? preset.checkoutUrl : secureUrl(body.checkoutUrl || preset.checkoutUrl, mode === "production");
+    const refundUrl = provider === "wechat" ? "" : provider === "alipay" ? preset.refundUrl : secureUrl(body.refundUrl || preset.refundUrl);
     const nextSecret = (key: keyof PaymentDetails, limit = 10000) => text(body[key], limit) || text(existing[key], limit);
-    const queryUrl = provider === "wechat" ? preset.queryUrl : "";
     const details: PaymentDetails = {
-      displayName: provider === "wechat" ? "微信支付 V2" : text(body.displayName, 80) || existing.displayName || (provider === "alipay" ? "支付宝" : "兼容支付网关"),
-      sortOrder: provider === "wechat" ? 1 : number(body.sortOrder, 0, 999), feeRateBps: provider === "wechat" ? 0 : number(body.feeRateBps, 0, 10000),
-      fixedFeeCents: provider === "wechat" ? 0 : number(body.fixedFeeCents), minAmountCents: provider === "wechat" ? 0 : number(body.minAmountCents),
-      maxAmountCents: provider === "wechat" ? 0 : number(body.maxAmountCents), callbackSecret: provider === "wechat" ? undefined : nextSecret("callbackSecret", 500),
-      appId: text(body.appId, 160) || existing.appId,
+      displayName: provider === "wechat" ? "微信支付 V2" : provider === "alipay" ? "支付宝" : text(body.displayName, 80) || existing.displayName || "兼容支付网关",
+      sortOrder: provider === "wechat" ? 1 : provider === "alipay" ? 2 : number(body.sortOrder, 0, 999),
+      feeRateBps: nativeProvider ? 0 : number(body.feeRateBps, 0, 10000), fixedFeeCents: nativeProvider ? 0 : number(body.fixedFeeCents),
+      minAmountCents: nativeProvider ? 0 : number(body.minAmountCents), maxAmountCents: nativeProvider ? 0 : number(body.maxAmountCents),
+      callbackSecret: nativeProvider ? undefined : nextSecret("callbackSecret", 500),
+      appId: provider === "wechat" ? (text(body.appId, 160) || existing.appId) : undefined,
       apiV2Key: provider === "wechat" ? nextSecret("apiV2Key", 200) : undefined,
-      queryUrl: provider === "wechat" ? queryUrl : undefined,
+      queryUrl: provider === "wechat" ? preset.queryUrl : undefined,
       spbillCreateIp: provider === "wechat" ? automaticWechatIp(existing.spbillCreateIp || "") : undefined,
       wechatApiVersion: provider === "wechat" ? "v2" : undefined,
       signType: provider === "wechat" ? "HMAC-SHA256" : "RSA2",
-      appPrivateKey: provider === "wechat" ? undefined : nextSecret("appPrivateKey"),
-      alipayPublicKey: provider === "wechat" ? undefined : nextSecret("alipayPublicKey"),
-      returnUrl: provider === "wechat" ? undefined : (text(body.returnUrl, 500) ? secureUrl(body.returnUrl) : existing.returnUrl || ""),
+      appPrivateKey: provider === "alipay" ? nextSecret("appPrivateKey") : undefined,
+      alipayPublicKey: provider === "alipay" ? nextSecret("alipayPublicKey") : undefined,
+      returnUrl: provider === "alipay" ? existing.returnUrl || "" : provider === "gateway" ? (text(body.returnUrl, 500) ? secureUrl(body.returnUrl) : existing.returnUrl || "") : undefined,
     };
     const candidate: PaymentConfig = { mode, provider, merchantName, merchantId, checkoutUrl, refundUrl, details, source: "database", status: "active", secretHint: current.secretHint, updatedAt: current.updatedAt };
-    if (mode === "production" && !paymentConfigReady(candidate)) return Response.json({ error: provider === "wechat" ? "只需要填写 AppID、商户号和 API V2 Key；服务器 IPv4 会自动读取当前部署地址。" : provider === "alipay" ? "支付宝正式收款需填写 AppID、应用私钥和支付宝公钥。" : "正式收款需填写商户号、HTTPS 下单地址和回调签名密钥。" }, { status: 400 });
+    if (mode === "production" && !paymentConfigReady(candidate)) return Response.json({ error: provider === "wechat" ? "微信只需要填写 AppID、商户号和 API V2 Key。" : provider === "alipay" ? "支付宝只需要填写 AppID、应用私钥和支付宝公钥。" : "正式收款需填写商户号、HTTPS 下单地址和回调签名密钥。" }, { status: 400 });
     if (!runtime.CONFIG_ENCRYPTION_KEY) return Response.json({ error: "缺少 CONFIG_ENCRYPTION_KEY，不能保存支付密钥。" }, { status: 503 });
     const encrypted = await encryptSecret(JSON.stringify(details), runtime.CONFIG_ENCRYPTION_KEY); const now = new Date().toISOString();
     const secretCount = [details.callbackSecret, details.apiV2Key, details.appPrivateKey, details.alipayPublicKey].filter(Boolean).length;
@@ -139,6 +145,7 @@ export async function POST(request: Request) {
       .bind(provider, mode, provider, merchantName, merchantId, checkoutUrl, refundUrl, encrypted.ciphertext, encrypted.iv, hint, admin.id, now, now).run();
     await writePlatformAudit(admin, "payment.channel.updated", "payment_config", provider, { mode, provider, merchantName, merchantIdHint: merchantId ? `${merchantId.slice(0, 4)}…` : "", secretCount, checkoutConfigured: Boolean(checkoutUrl), refundConfigured: Boolean(refundUrl), wechatApiVersion: provider === "wechat" ? "v2" : undefined });
     const saved = await loadPaymentConfig(provider); const state = await paymentState();
-    return Response.json({ saved: true, ready: state.ready, config: publicConfig(request, saved), message: provider === "wechat" ? "微信支付 V2 配置已保存。现在可以点击“检测是否连通”。" : paymentConfigReady(saved) ? `${saved.details.displayName || provider} 已保存并可用于收款。` : "渠道配置已保存，当前未启用正式收款。" });
+    const message = provider === "wechat" ? "微信支付配置已保存，可以直接检测连通性。" : provider === "alipay" ? "支付宝配置已保存，可以直接检测连通性。" : paymentConfigReady(saved) ? `${saved.details.displayName || provider} 已保存并可用于收款。` : "渠道配置已保存，当前未启用正式收款。";
+    return Response.json({ saved: true, ready: state.ready, config: publicConfig(request, saved), message });
   } catch (error) { return platformRouteError(error); }
 }
