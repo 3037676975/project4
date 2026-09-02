@@ -1,5 +1,6 @@
 name: Apply reviewed Project4 server sync
 
+# Triggered once after all reviewed patch parts are staged.
 on:
   push:
     branches: [main]
