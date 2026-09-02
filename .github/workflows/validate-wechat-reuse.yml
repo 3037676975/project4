@@ -1,0 +1,61 @@
+name: Validate shared WeChat checkout flow
+on:
+  push:
+    branches: [reuse-wechat-checkout-logic-20260903]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: reuse-wechat-checkout-logic-20260903
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - name: Apply UX and error passthrough fixes
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const dashPath = 'app/dashboard.tsx';
+          let dash = fs.readFileSync(dashPath, 'utf8');
+          const oldSelect = 'async function selectPlan(code: string) { if (!confirm("系统将创建待支付订单。只有支付验签成功后套餐才会生效，继续？")) return; setBusy(`plan-${code}`);';
+          const newSelect = 'async function selectPlan(code: string) { setBusy(`plan-${code}`);';
+          if (!dash.includes(oldSelect)) throw new Error('selectPlan confirmation marker not found');
+          dash = dash.replace(oldSelect, newSelect);
+          fs.writeFileSync(dashPath, dash);
+
+          const routePath = 'app/api/billing/route.ts';
+          let route = fs.readFileSync(routePath, 'utf8');
+          if (!route.includes('import { PublicApiError } from "../../../lib/api-keys";')) {
+            route = 'import { PublicApiError } from "../../../lib/api-keys";\n' + route;
+          }
+          const oldCatch = '  } catch (error) { return routeError(error); }\n}\n';
+          const pos = route.lastIndexOf(oldCatch);
+          if (pos < 0) throw new Error('billing POST catch marker not found');
+          const replacement = '  } catch (error) {\n    if (error instanceof PublicApiError) return Response.json({ error: error.message, code: error.code }, { status: error.status });\n    return routeError(error);\n  }\n}\n';
+          route = route.slice(0, pos) + replacement + route.slice(pos + oldCatch.length);
+          fs.writeFileSync(routePath, route);
+          NODE
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Validate shared checkout boundaries
+        run: |
+          grep -q 'createConfiguredWechatV2NativeOrder' lib/payment-test.ts
+          grep -q 'createConfiguredWechatV2NativeOrder' lib/wechat-v2-billing.ts
+          ! grep -q 'APP_BASE_URL 使用公网 HTTPS' lib/wechat-v2-billing.ts
+          ! grep -q '系统将创建待支付订单。只有支付验签成功后套餐才会生效' app/dashboard.tsx
+          grep -q 'error instanceof PublicApiError' app/api/billing/route.ts
+      - name: Commit validated source changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/dashboard.tsx app/api/billing/route.ts
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(billing): reuse admin WeChat checkout for tenant orders'
+            git push origin HEAD:reuse-wechat-checkout-logic-20260903
+          fi
