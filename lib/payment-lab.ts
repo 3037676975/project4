@@ -1,7 +1,7 @@
 import { loadPaymentConfig, paymentConfigReady, type PaymentProvider } from "./payment-config";
 import { alipaySignContent, chinaPaymentTimestamp, rsaSha256Sign, rsaSha256Verify, yuanToCents } from "./payment-crypto";
 import { getRuntime } from "./runtime";
-import { randomToken } from "./security";
+import { queryWechatV2Order } from "./wechat-v2";
 
 type LiveProvider = Exclude<PaymentProvider, "sandbox">;
 export type PaymentLogDirection = "request" | "callback" | "query" | "refund" | "system";
@@ -153,39 +153,34 @@ async function queryAlipay(orderNo: string): Promise<ProviderQueryResult> {
   };
 }
 
+function wechatTime(value: string) {
+  if (!/^\d{14}$/.test(value)) return null;
+  const date = new Date(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(8, 10)}:${value.slice(10, 12)}:${value.slice(12, 14)}+08:00`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 async function queryWechat(orderNo: string): Promise<ProviderQueryResult> {
   const config = await loadPaymentConfig("wechat");
-  if (!paymentConfigReady(config)) throw new Error("微信支付渠道尚未完成正式配置。");
-  const base = new URL(config.checkoutUrl);
-  const endpoint = new URL(`/v3/pay/transactions/out-trade-no/${encodeURIComponent(orderNo)}`, base.origin);
-  endpoint.searchParams.set("mchid", config.merchantId);
-  const path = `${endpoint.pathname}${endpoint.search}`;
-  const timestamp = Math.floor(Date.now() / 1000).toString(); const nonce = randomToken(18);
-  const signature = await rsaSha256Sign(`GET\n${path}\n${timestamp}\n${nonce}\n\n`, config.details.merchantPrivateKey || "");
-  const authorization = `WECHATPAY2-SHA256-RSA2048 mchid="${config.merchantId}",nonce_str="${nonce}",timestamp="${timestamp}",serial_no="${config.details.merchantSerialNo}",signature="${signature}"`;
-  const response = await fetch(endpoint, { headers: { Accept: "application/json", Authorization: authorization }, signal: AbortSignal.timeout(15000) });
-  const raw = await response.text();
-  if (!response.ok) {
-    let message = `HTTP ${response.status}`;
-    try { const data = JSON.parse(raw) as { message?: string; code?: string }; message = data.message || data.code || message; } catch { /* noop */ }
-    throw new Error(`微信支付订单查询失败：${message}`);
-  }
-  const responseTimestamp = response.headers.get("Wechatpay-Timestamp") || response.headers.get("wechatpay-timestamp") || "";
-  const responseNonce = response.headers.get("Wechatpay-Nonce") || response.headers.get("wechatpay-nonce") || "";
-  const responseSignature = response.headers.get("Wechatpay-Signature") || response.headers.get("wechatpay-signature") || "";
-  const signatureValid = Boolean(responseTimestamp && responseNonce && responseSignature && await rsaSha256Verify(
-    `${responseTimestamp}\n${responseNonce}\n${raw}\n`, responseSignature, config.details.platformPublicKey || "",
-  ));
-  if (!signatureValid) throw new Error("微信支付订单查询响应验签失败。");
-  const payload = JSON.parse(raw) as Record<string, unknown>;
-  const amount = payload.amount as { total?: number } | undefined;
-  const tradeState = String(payload.trade_state || "UNKNOWN");
+  if (!paymentConfigReady(config)) throw new Error("微信支付 V2 渠道尚未完成正式配置。");
+  const result = await queryWechatV2Order({
+    appId: config.details.appId || "",
+    merchantId: config.merchantId,
+    apiV2Key: config.details.apiV2Key || "",
+    orderQueryUrl: config.details.queryUrl || "https://api.mch.weixin.qq.com/pay/orderquery",
+  }, orderNo);
+  const data = result.data;
+  if (data.return_code !== "SUCCESS") throw new Error(`微信 V2 查单通信失败：${data.return_msg || "UNKNOWN"}`);
+  if (data.result_code !== "SUCCESS") return {
+    supported: true, provider: "wechat", orderNo, paid: false, tradeNo: null, amountCents: null,
+    providerStatus: data.err_code || "QUERY_FAIL", occurredAt: null, signatureValid: result.signatureValid,
+    message: data.err_code_des || data.err_code || "微信 V2 查单未返回交易状态。",
+  };
+  const amount = Number(data.total_fee || 0); const tradeState = data.trade_state || "UNKNOWN";
   return {
     supported: true, provider: "wechat", orderNo, paid: tradeState === "SUCCESS",
-    tradeNo: typeof payload.transaction_id === "string" ? payload.transaction_id : null,
-    amountCents: Number.isSafeInteger(amount?.total) ? Number(amount?.total) : null, providerStatus: tradeState,
-    occurredAt: typeof payload.success_time === "string" ? payload.success_time : null, signatureValid,
-    message: typeof payload.trade_state_desc === "string" ? payload.trade_state_desc : tradeState,
+    tradeNo: data.transaction_id || null, amountCents: Number.isSafeInteger(amount) && amount > 0 ? amount : null,
+    providerStatus: tradeState, occurredAt: wechatTime(data.time_end || ""), signatureValid: result.signatureValid,
+    message: data.trade_state_desc || tradeState,
   };
 }
 
@@ -201,12 +196,13 @@ export function paymentLabProfile(baseUrl: string) {
     name: "Payment Lab",
     implementation: "Project4 native TypeScript/Cloudflare runtime",
     reference: "3037676975/project3",
-    providers: ["alipay-rsa2", "wechat-pay-api-v3"],
+    providers: ["alipay-rsa2", "wechat-pay-v2-native"],
     rules: ["独立支付配置", "统一业务订单", "支付请求留痕", "回调必须验签", "回调幂等处理", "主动订单查询", "禁止重复发放权益", "密钥不写日志"],
     endpoints: {
       callback: `${base}/api/payments/callback?provider={provider}`,
       query: `${base}/api/payments/query?orderNo={orderNo}`,
       platform: `${base}/api/platform/payment/lab`,
+      wechatV2: `${base}/platform/wechat-v2`,
     },
   };
 }
