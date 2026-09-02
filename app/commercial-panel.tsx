@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import CustomerServiceConsole from "./customer-service-console";
 
 type AssistantConfig = { id: string; publicId: string; publicEnabled: boolean; brandName: string; welcomeMessage: string; themeColor: string; leadCaptureEnabled: boolean; handoffEnabled: boolean; handoffLabel: string; industryTemplate: string; suggestedQuestions: string[]; allowedDomains: string[]; privacyNotice: string; privacyPolicyUrl: string; privacyVersion: string; retentionDays: number; version: number };
 type Lead = { id: string; name: string; company: string; contact: string; need: string; status: string; assigneeMemberId: string | null; estimatedValueCents: number; notes: string; createdAt: string };
@@ -61,6 +62,7 @@ export default function CommercialPanel({ canAdmin, members, onNotice }: { canAd
     <section className="commercial-hero card"><div><p className="section-kicker">Revenue operations</p><h2>把企业资料变成能获客、能转人工、能计算产出的 AI 员工</h2><p>访客提问 → RAG 回答 → 未解决问题沉淀 → 留资 / 工单 → 销售跟进 → 成交金额。</p></div><div className="commercial-plan"><span>{data.plan.name}</span><b>{data.monthly.conversations}/{data.plan.widgetConversationQuota}</b><small>本月客服会话</small>{!config.publicEnabled && <button className="primary-button fit" onClick={() => void publishNow()} disabled={!canAdmin || busy === "publish"}>一键发布客服</button>}</div></section>
     <section className="metric-grid commercial-metrics"><article><span>近 30 天会话</span><strong>{data.summary.conversations}</strong><small>官网智能客服访客</small></article><article><span>人工确认解决率</span><strong className={data.summary.resolutionRate >= 70 ? "good" : "warn"}>{data.summary.conversations ? `${data.summary.resolutionRate}%` : "—"}</strong><small>{data.summary.resolved} 用户确认 · {data.summary.grounded} 有依据回答</small></article><article><span>销售线索</span><strong>{data.summary.leads}</strong><small>{data.monthly.leads}/{data.plan.leadQuota} 本月额度</small></article><article><span>预计商机</span><strong>{money(data.summary.pipelineCents)}</strong><small>已成交 {money(data.summary.wonCents)}</small></article></section>
     <section className="commercial-finance"><span>订阅实收 <b>{money(data.summary.revenueCents)}</b></span><span>模型/OCR 成本 <b>{money(data.summary.costCents)}</b></span><span>毛利润 <b>{money(data.summary.grossProfitCents)}</b></span></section>
+    <CustomerServiceConsole canAdmin={canAdmin} onNotice={onNotice}/>
     {(!leadAvailable || !handoffAvailable) && <section className="commercial-upgrade"><b>当前为{data.plan.name}</b><span>网页问答已可使用；成长版解锁销售留资、转人工工单和完整转化闭环。</span></section>}
     <div className="commercial-layout">
       <section className="card form-card"><div className="card-head"><div><p className="section-kicker">Website widget</p><h2>官网客服发布设置</h2></div><span className={config.publicEnabled ? "live-badge" : "warn-badge"}>{config.publicEnabled ? "已上线" : "未公开"}</span></div>

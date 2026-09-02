@@ -267,6 +267,7 @@ export const assistants = sqliteTable("assistants", {
 export const customerConversations = sqliteTable("customer_conversations", {
   id: text("id").primaryKey(), tenantId: text("tenant_id").notNull(), assistantId: text("assistant_id").notNull(),
   visitorId: text("visitor_id").notNull(), visitorIdHash: text("visitor_id_hash"), channel: text("channel").notNull().default("web_widget"),
+  accessTokenHash: text("access_token_hash"), mode: text("mode").notNull().default("ai"), assignedMemberId: text("assigned_member_id"),
   status: text("status").notNull().default("open"), firstQuestion: text("first_question").notNull().default(""),
   lastQuestion: text("last_question").notNull().default(""), messageCount: integer("message_count").notNull().default(0),
   sourceHitCount: integer("source_hit_count").notNull().default(0), aiResolved: integer("ai_resolved", { mode: "boolean" }).notNull().default(false),
@@ -277,6 +278,16 @@ export const customerConversations = sqliteTable("customer_conversations", {
 }, (table) => [
   index("customer_conversations_tenant_idx").on(table.tenantId, table.startedAt),
   index("customer_conversations_assistant_idx").on(table.assistantId, table.lastMessageAt),
+]);
+
+export const customerFaqs = sqliteTable("customer_faqs", {
+  id: text("id").primaryKey(), tenantId: text("tenant_id").notNull(), assistantId: text("assistant_id").notNull(),
+  question: text("question").notNull(), answer: text("answer").notNull(), keywordsJson: text("keywords_json").notNull().default("[]"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true), priority: integer("priority").notNull().default(100),
+  hitCount: integer("hit_count").notNull().default(0), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("customer_faqs_tenant_idx").on(table.tenantId, table.assistantId, table.enabled, table.priority),
+  index("customer_faqs_updated_idx").on(table.tenantId, table.updatedAt),
 ]);
 
 export const customerMessages = sqliteTable("customer_messages", {

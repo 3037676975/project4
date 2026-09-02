@@ -6,7 +6,7 @@ import type { CSSProperties } from "react";
 export type Config = { publicId: string; brandName: string; welcomeMessage: string; themeColor: string; leadCaptureEnabled: boolean; handoffEnabled: boolean; handoffLabel: string; suggestedQuestions: string[]; privacyNotice: string; privacyPolicyUrl: string; privacyVersion: string; retentionDays: number };
 type Message = { id: string; serverId?: string; role: "assistant" | "user"; content: string; sources?: string[]; feedback?: "positive" | "negative" };
 
-function newId(prefix: string) { return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`; }
+function newId(prefix: string) { const bytes = new Uint8Array(12); if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes); else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256); return `${prefix}_${Date.now().toString(36)}_${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`; }
 
 async function post<T>(url: string, body: Record<string, unknown>): Promise<T> {
   const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -16,27 +16,33 @@ async function post<T>(url: string, body: Record<string, unknown>): Promise<T> {
 }
 
 export default function WidgetClient({ config, embedToken }: { config: Config; embedToken: string }) {
-  const [visitorId, setVisitorId] = useState(""); const [conversationId, setConversationId] = useState("");
+  const [visitorId, setVisitorId] = useState(""); const [conversationId, setConversationId] = useState(""); const [conversationToken, setConversationToken] = useState(""); const [mode, setMode] = useState<"ai" | "human">("ai");
   const [messages, setMessages] = useState<Message[]>([{ id: "welcome", role: "assistant", content: config.welcomeMessage }]);
   const [question, setQuestion] = useState(""); const [busy, setBusy] = useState(false); const [panel, setPanel] = useState<"lead" | "ticket" | "privacy" | null>(null);
   const [form, setForm] = useState({ name: "", company: "", contact: "", need: "", consent: false }); const [notice, setNotice] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const visitorKey = `knowflow_visitor_${config.publicId}`; const conversationKey = `knowflow_conversation_${config.publicId}`;
+    const visitorKey = `knowflow_visitor_${config.publicId}`; const conversationKey = `knowflow_conversation_${config.publicId}`; const tokenKey = `knowflow_conversation_token_${config.publicId}`;
     let visitor = localStorage.getItem(visitorKey); if (!visitor) { visitor = newId("visitor"); localStorage.setItem(visitorKey, visitor); }
-    setVisitorId(visitor); setConversationId(localStorage.getItem(conversationKey) || "");
+    setVisitorId(visitor); setConversationId(localStorage.getItem(conversationKey) || ""); setConversationToken(localStorage.getItem(tokenKey) || "");
   }, [config.publicId]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, panel, busy]);
+  useEffect(() => {
+    if (!conversationId || !conversationToken || !visitorId) return;
+    let active = true;
+    const sync = async () => { try { const data = await post<{ mode: "ai" | "human"; status: string; messages: Array<{ id: string; role: string; content: string }> }>("/api/public/conversation", { publicId: config.publicId, conversationId, conversationToken, visitorId, embedToken }); if (!active) return; setMode(data.mode === "human" ? "human" : "ai"); setMessages((current) => { const known = new Set(current.map((item) => item.serverId || item.id)); const incoming = data.messages.filter((item) => !known.has(item.id)).map((item) => ({ id: item.id, serverId: item.id, role: "assistant" as const, content: item.content, sources: ["人工客服"] })); return incoming.length ? [...current, ...incoming] : current; }); } catch { /* next poll retries */ } };
+    void sync(); const timer = window.setInterval(() => { void sync(); }, 4000); return () => { active = false; window.clearInterval(timer); };
+  }, [conversationId, conversationToken, visitorId, config.publicId, embedToken]);
 
   async function ask(event?: FormEvent, suggested?: string) {
     event?.preventDefault(); const text = (suggested || question).trim(); if (!text || busy || !visitorId) return;
     setQuestion(""); setBusy(true); setNotice(""); setMessages((current) => [...current, { id: newId("local"), role: "user", content: text }]);
     try {
-      const data = await post<{ conversationId: string; messageId: string; answer: string; resolved: boolean; sources: Array<{ document: string }> }>("/api/public/chat", { publicId: config.publicId, question: text, conversationId: conversationId || undefined, visitorId, embedToken });
-      setConversationId(data.conversationId); localStorage.setItem(`knowflow_conversation_${config.publicId}`, data.conversationId);
-      setMessages((current) => [...current, { id: newId("answer"), serverId: data.messageId, role: "assistant", content: data.answer, sources: [...new Set(data.sources.map((item) => item.document))] }]);
-      if (!data.resolved && config.handoffEnabled) setNotice("知识库没有找到明确依据，您可以提交人工工单继续处理。");
+      const data = await post<{ conversationId: string; conversationToken: string; messageId: string; answer: string; mode: "ai" | "human"; resolved: boolean; faqMatched?: boolean; sources: Array<{ document: string }> }>("/api/public/chat", { publicId: config.publicId, question: text, conversationId: conversationId || undefined, conversationToken: conversationToken || undefined, visitorId, embedToken, mode });
+      setConversationId(data.conversationId); localStorage.setItem(`knowflow_conversation_${config.publicId}`, data.conversationId); if (data.conversationToken) { setConversationToken(data.conversationToken); localStorage.setItem(`knowflow_conversation_token_${config.publicId}`, data.conversationToken); }
+      setMode(data.mode); setMessages((current) => [...current, { id: newId("answer"), serverId: data.messageId, role: "assistant", content: data.answer, sources: data.mode === "human" ? ["人工客服"] : [...new Set(data.sources.map((item) => item.document))] }]);
+      if (data.mode === "human") setNotice("已进入人工客服模式，人工回复会自动显示在这里。"); else if (data.faqMatched) setNotice("已优先命中企业 FAQ，无需调用大模型。"); else if (!data.resolved && config.handoffEnabled) setNotice("知识库没有找到明确依据，可切换人工客服继续处理。");
     } catch (error) { setMessages((current) => [...current, { id: newId("error"), role: "assistant", content: error instanceof Error ? error.message : "服务暂时不可用。" }]); }
     finally { setBusy(false); }
   }
@@ -73,7 +79,7 @@ export default function WidgetClient({ config, embedToken }: { config: Config; e
   const consentLine = <label className="widget-consent"><input type="checkbox" checked={form.consent} onChange={(event) => setForm({ ...form, consent: event.target.checked })}/><span>{config.privacyNotice}{config.privacyPolicyUrl ? <> <a href={config.privacyPolicyUrl} target="_blank" rel="noreferrer">查看隐私政策</a></> : null}（保存不超过 {config.retentionDays} 天）</span></label>;
   return <main className="widget-page" style={{ "--widget-color": config.themeColor } as CSSProperties}>
     <section className="widget-card">
-      <header className="widget-header"><div className="widget-logo">K</div><div><h1>{config.brandName}</h1><p><i /> AI 知识库在线</p></div><span>企业专属</span></header>
+      <header className="widget-header"><div className="widget-logo">K</div><div><h1>{config.brandName}</h1><p><i /> {mode === "human" ? "人工客服接待中" : "AI 知识库在线"}</p></div><span>企业专属</span></header>
       <div className="widget-messages">
         {messages.map((message) => <article className={`widget-message ${message.role}`} key={message.id}><div>{message.content}</div>{message.sources?.length ? <small>依据：{message.sources.join("、")}</small> : null}{message.serverId && <span className="widget-feedback"><button className={message.feedback === "positive" ? "active" : ""} onClick={() => void feedback(message, "positive")}>有帮助</button><button className={message.feedback === "negative" ? "active" : ""} onClick={() => void feedback(message, "negative")}>没解决</button></span>}</article>)}
         {busy && !panel && <article className="widget-message assistant"><div className="widget-typing"><i/><i/><i/> 正在检索企业资料</div></article>}
@@ -84,8 +90,8 @@ export default function WidgetClient({ config, embedToken }: { config: Config; e
         {panel === "privacy" && <form className="widget-form" onSubmit={submitPrivacy}><b>个人数据权利请求</b><input required value={form.contact} onChange={(event) => setForm({ ...form, contact: event.target.value })} placeholder="用于核验身份的手机号或邮箱" maxLength={160}/><select value={form.need || "export"} onChange={(event) => setForm({ ...form, need: event.target.value })}><option value="export">导出我的咨询数据</option><option value="delete">删除我的咨询数据</option></select><small>企业管理员核验身份后处理，防止他人冒用您的联系方式删除数据。</small><footer><button type="button" onClick={() => setPanel(null)}>取消</button><button disabled={busy}>提交请求</button></footer></form>}
         <div ref={bottomRef}/>
       </div>
-      <div className="widget-actions">{config.leadCaptureEnabled && <button onClick={() => { setPanel("lead"); setNotice(""); }}>获取方案</button>}{config.handoffEnabled && <button onClick={() => { setPanel("ticket"); setNotice(""); }}>{config.handoffLabel}</button>}</div>
-      <form className="widget-input" onSubmit={(event) => void ask(event)}><textarea rows={1} value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} placeholder="请输入您的问题…" maxLength={1200}/><button disabled={busy || !question.trim()} aria-label="发送">↑</button></form>
+      <div className="widget-actions"><button onClick={() => { setMode("ai"); setPanel(null); setNotice("已切换 AI 客服。"); }} disabled={mode === "ai"}>AI 客服</button>{config.handoffEnabled && <button onClick={() => { setMode("human"); setPanel(null); setNotice("已切换人工客服，请发送您的问题，客服工作台会立即收到。"); }} disabled={mode === "human"}>{config.handoffLabel}</button>}{config.leadCaptureEnabled && <button onClick={() => { setPanel("lead"); setNotice(""); }}>获取方案</button>}</div>
+      <form className="widget-input" onSubmit={(event) => void ask(event)}><textarea rows={1} value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} placeholder={mode === "human" ? "给人工客服发送消息…" : "请输入您的问题…"} maxLength={1200}/><button disabled={busy || !question.trim()} aria-label="发送">↑</button></form>
       <footer className="widget-powered">回答来自企业知识库 · 重要信息请以人工确认为准 · <button onClick={() => { setPanel("privacy"); setNotice(""); }}>数据导出/删除</button></footer>
     </section>
   </main>;
