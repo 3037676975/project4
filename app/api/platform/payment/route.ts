@@ -1,7 +1,8 @@
 import { encryptSecret } from "../../../../lib/crypto";
 import { paymentState } from "../../../../lib/billing";
 import { loadPaymentConfig, paymentConfigReady, type PaymentConfig, type PaymentDetails, type PaymentProvider } from "../../../../lib/payment-config";
-import { queryPaymentProvider } from "../../../../lib/payment-lab";
+import { queryPaymentProvider, writePaymentLabLog } from "../../../../lib/payment-lab";
+import { createPaymentTestOrder, queryPaymentTestOrder } from "../../../../lib/payment-test";
 import { requirePlatformAdmin, platformRouteError, writePlatformAudit } from "../../../../lib/platform-admin";
 import { getRuntime } from "../../../../lib/runtime";
 import { hmacSha256 } from "../../../../lib/security";
@@ -19,6 +20,10 @@ function secureUrl(value: unknown, required = false) {
   let url: URL; try { url = new URL(raw); } catch { throw Object.assign(new Error("支付接口地址格式无效。"), { status: 400 }); }
   if (url.protocol !== "https:") throw Object.assign(new Error("正式支付接口必须使用 HTTPS。"), { status: 400 });
   return url.toString();
+}
+function appUsesHttps() {
+  try { return new URL(getRuntime().APP_BASE_URL || "").protocol === "https:"; }
+  catch { return false; }
 }
 function callbackUrl(request: Request, provider: ChannelProvider) {
   const base = (getRuntime().APP_BASE_URL || new URL(request.url).origin).replace(/\/$/, "");
@@ -51,7 +56,7 @@ function publicConfig(request: Request, config: PaymentConfig) {
     appId: details.appId || "", signType: details.signType || (config.provider === "wechat" ? "HMAC-SHA256" : "RSA2"), returnUrl: details.returnUrl || "",
     wechatApiVersion: details.wechatApiVersion || (config.provider === "wechat" ? "v2" : ""), queryUrl: details.queryUrl || "", spbillCreateIp: details.spbillCreateIp || "",
     source: config.source, status: config.status, updatedAt: config.updatedAt, secretHint: config.secretHint,
-    callbackUrl: callbackUrl(request, config.provider as ChannelProvider), ready: paymentConfigReady(config),
+    callbackUrl: callbackUrl(request, config.provider as ChannelProvider), ready: paymentConfigReady(config), callbackHttpsReady: appUsesHttps(),
     callbackSecretConfigured: Boolean(details.callbackSecret), apiV2KeyConfigured: Boolean(details.apiV2Key),
     appPrivateKeyConfigured: Boolean(details.appPrivateKey), alipayPublicKeyConfigured: Boolean(details.alipayPublicKey),
     merchantSerialNo: "", platformPublicKeyId: "", apiV3KeyConfigured: false, merchantPrivateKeyConfigured: false, platformPublicKeyConfigured: false,
@@ -75,7 +80,7 @@ export async function GET(request: Request) {
       });
     }));
     const state = await paymentState();
-    return Response.json({ configs, ready: state.ready, preferredProvider: state.provider });
+    return Response.json({ configs, ready: state.ready, preferredProvider: state.provider, callbackHttpsReady: appUsesHttps() });
   } catch (error) { return platformRouteError(error); }
 }
 
@@ -83,26 +88,63 @@ export async function POST(request: Request) {
   try {
     const admin = await requirePlatformAdmin(request, ["super_admin"]); const runtime = getRuntime();
     const body = await request.json() as Record<string, unknown>; const action = text(body.action, 30) || "save"; const provider = providerValue(body.provider);
+
     if (action === "test") {
-      const config = await loadPaymentConfig(provider);
-      if (provider === "wechat") {
-        const appId = text(config.details.appId, 160); const apiV2Key = text(config.details.apiV2Key, 200); const orderQueryUrl = text(config.details.queryUrl, 500) || defaults("wechat").queryUrl;
-        if (!appId || !config.merchantId || !apiV2Key) return Response.json({ error: "请先填写并保存 AppID、商户号和 API V2 Key。" }, { status: 409 });
-        const probe = await probeWechatV2Config({ appId, merchantId: config.merchantId, apiV2Key, orderQueryUrl });
-        if (!probe.ok) return Response.json({ error: probe.message, code: probe.code }, { status: 409 });
-        return Response.json({ ok: true, code: probe.code, message: "微信支付配置正常。AppID、商户号、API V2 Key、签名和服务器网络均已验证通过。" });
+      try {
+        const config = await loadPaymentConfig(provider);
+        if (provider === "wechat") {
+          const appId = text(config.details.appId, 160); const apiV2Key = text(config.details.apiV2Key, 200); const orderQueryUrl = text(config.details.queryUrl, 500) || defaults("wechat").queryUrl;
+          if (!appId || !config.merchantId || !apiV2Key) return Response.json({ error: "请先填写并保存 AppID、商户号和 API V2 Key。" }, { status: 409 });
+          const probe = await probeWechatV2Config({ appId, merchantId: config.merchantId, apiV2Key, orderQueryUrl });
+          if (!probe.ok) return Response.json({ error: probe.message, code: probe.code }, { status: 409 });
+          await writePaymentLabLog({ direction: "query", provider, eventType: "config.connectivity.verified", status: "connected", message: "微信支付 V2 配置连通检测通过。", detail: { code: probe.code } });
+          return Response.json({ ok: true, code: probe.code, connected: true, callbackHttpsReady: appUsesHttps(), message: appUsesHttps() ? "微信支付配置正常，配置、签名、网络和 HTTPS 回调均已就绪。" : "微信支付配置正常，AppID、商户号、API V2 Key、签名和服务器网络均已验证通过；当前是 HTTP，可继续生成测试二维码，正式上线回调建议绑定 HTTPS 域名。" });
+        }
+        if (provider === "alipay") {
+          if (!paymentConfigReady(config)) return Response.json({ error: "请先填写并保存支付宝 AppID、应用私钥和支付宝公钥。" }, { status: 409 });
+          const probeOrderNo = `KFCHECK${Date.now()}${Math.floor(Math.random() * 10000)}`.slice(0, 32);
+          const probe = await queryPaymentProvider(probeOrderNo, "alipay");
+          if (!probe.signatureValid) return Response.json({ error: "支付宝响应验签失败，请检查支付宝公钥。" }, { status: 409 });
+          await writePaymentLabLog({ direction: "query", provider, eventType: "config.connectivity.verified", status: "connected", message: "支付宝配置连通检测通过。" });
+          return Response.json({ ok: true, connected: true, callbackHttpsReady: appUsesHttps(), message: appUsesHttps() ? "支付宝配置正常，AppID、应用私钥、支付宝公钥、签名、网络和 HTTPS 回调均已就绪。" : "支付宝配置正常，AppID、应用私钥、支付宝公钥、签名和服务器网络均已验证通过；当前是 HTTP，可继续生成测试二维码，正式上线回调建议绑定 HTTPS 域名。" });
+        }
+        if (!paymentConfigReady(config)) return Response.json({ error: "请先补齐该渠道的正式商户参数并保存。" }, { status: 409 });
+        await hmacSha256(config.details.callbackSecret || "", `knowflow-payment-self-test\n${Date.now()}`);
+        return Response.json({ ok: true, connected: true, message: `${config.details.displayName || config.merchantName || provider} 本地签名和必填参数校验通过。` });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "未知错误";
+        await writePaymentLabLog({ direction: "query", provider, eventType: "config.connectivity.failed", status: "failed", message });
+        return Response.json({ error: `${provider === "wechat" ? "微信支付" : provider === "alipay" ? "支付宝" : "支付网关"}检测失败：${message}` }, { status: 502 });
       }
-      if (provider === "alipay") {
-        if (!paymentConfigReady(config)) return Response.json({ error: "请先填写并保存支付宝 AppID、应用私钥和支付宝公钥。" }, { status: 409 });
-        const probeOrderNo = `KFCHECK${Date.now()}${Math.floor(Math.random() * 10000)}`.slice(0, 32);
-        const probe = await queryPaymentProvider(probeOrderNo, "alipay");
-        if (!probe.signatureValid) return Response.json({ error: "支付宝响应验签失败，请检查支付宝公钥。" }, { status: 409 });
-        return Response.json({ ok: true, message: "支付宝配置正常。AppID、应用私钥、支付宝公钥、签名和服务器网络均已验证通过。" });
-      }
-      if (!paymentConfigReady(config)) return Response.json({ error: "请先补齐该渠道的正式商户参数并保存。" }, { status: 409 });
-      await hmacSha256(config.details.callbackSecret || "", `knowflow-payment-self-test\n${Date.now()}`);
-      return Response.json({ ok: true, message: `${config.details.displayName || config.merchantName || provider} 本地签名和必填参数校验通过（未产生真实扣款）。` });
     }
+
+    if (action === "create_test_order") {
+      if (provider !== "wechat" && provider !== "alipay") return Response.json({ error: "只有微信和支付宝支持测试二维码。" }, { status: 400 });
+      try {
+        const order = await createPaymentTestOrder(provider);
+        await writePaymentLabLog({ direction: "request", provider, eventType: "test.order.created", orderNo: order.orderNo, status: "waiting", message: order.message, detail: { amountCents: order.amountCents, expiresAt: order.expiresAt } });
+        return Response.json({ ok: true, order });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "测试订单创建失败";
+        await writePaymentLabLog({ direction: "request", provider, eventType: "test.order.create.failed", status: "failed", message });
+        return Response.json({ error: `${provider === "wechat" ? "微信" : "支付宝"}测试二维码生成失败：${message}` }, { status: 502 });
+      }
+    }
+
+    if (action === "query_test_order") {
+      if (provider !== "wechat" && provider !== "alipay") return Response.json({ error: "测试订单渠道无效。" }, { status: 400 });
+      const orderNo = text(body.orderNo, 40);
+      if (!orderNo) return Response.json({ error: "缺少测试订单号。" }, { status: 400 });
+      try {
+        const result = await queryPaymentTestOrder(provider, orderNo);
+        await writePaymentLabLog({ direction: "query", provider, eventType: "test.order.queried", orderNo, status: result.paid ? "paid" : result.providerStatus, message: result.message, detail: { amountCents: result.amountCents, tradeNoPresent: Boolean(result.tradeNo) } });
+        return Response.json({ ok: true, result });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "测试订单查询失败";
+        return Response.json({ error: message }, { status: 502 });
+      }
+    }
+
     if (action !== "save") return Response.json({ error: "不支持的支付配置操作。" }, { status: 400 });
     const current = await loadPaymentConfig(provider); const existing = current.details; const preset = defaults(provider);
     const nativeProvider = provider === "wechat" || provider === "alipay";
@@ -145,7 +187,7 @@ export async function POST(request: Request) {
       .bind(provider, mode, provider, merchantName, merchantId, checkoutUrl, refundUrl, encrypted.ciphertext, encrypted.iv, hint, admin.id, now, now).run();
     await writePlatformAudit(admin, "payment.channel.updated", "payment_config", provider, { mode, provider, merchantName, merchantIdHint: merchantId ? `${merchantId.slice(0, 4)}…` : "", secretCount, checkoutConfigured: Boolean(checkoutUrl), refundConfigured: Boolean(refundUrl), wechatApiVersion: provider === "wechat" ? "v2" : undefined });
     const saved = await loadPaymentConfig(provider); const state = await paymentState();
-    const message = provider === "wechat" ? "微信支付配置已保存，可以直接检测连通性。" : provider === "alipay" ? "支付宝配置已保存，可以直接检测连通性。" : paymentConfigReady(saved) ? `${saved.details.displayName || provider} 已保存并可用于收款。` : "渠道配置已保存，当前未启用正式收款。";
+    const message = provider === "wechat" ? "微信支付配置已保存，可以直接检测连通性或生成 ¥0.01 测试二维码。" : provider === "alipay" ? "支付宝配置已保存，可以直接检测连通性或生成 ¥0.01 测试二维码。" : paymentConfigReady(saved) ? `${saved.details.displayName || provider} 已保存并可用于收款。` : "渠道配置已保存，当前未启用正式收款。";
     return Response.json({ saved: true, ready: state.ready, config: publicConfig(request, saved), message });
   } catch (error) { return platformRouteError(error); }
 }
