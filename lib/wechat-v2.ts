@@ -38,7 +38,8 @@ export function wechatV2ParseXml(xml: string): WechatV2Fields {
 export function wechatV2ToXml(fields: WechatV2Fields) {
   const body = Object.entries(fields).map(([key, value]) => {
     if (!/^[A-Za-z0-9_]+$/.test(key)) throw new Error("微信支付 V2 XML 字段名无效。");
-    return `<${key}><![CDATA[${String(value).replace(/\]\]>/g, "]] ]><![CDATA[>")}]]></${key}>`;
+    const safe = String(value).replace(/\]\]>/g, "]]]]><![CDATA[>");
+    return `<${key}><![CDATA[${safe}]]></${key}>`;
   }).join("");
   return `<xml>${body}</xml>`;
 }
