@@ -36,6 +36,28 @@ function orderNumber() {
   return `KF${date}${random[0].toString(36).toUpperCase()}${random[1].toString(36).toUpperCase()}`.slice(0, 32);
 }
 
+function extractAlipayJsonObject(raw: string, key: string) {
+  const marker = `"${key}"`; const keyIndex = raw.indexOf(marker);
+  if (keyIndex < 0) return "";
+  const colon = raw.indexOf(":", keyIndex + marker.length); if (colon < 0) return "";
+  let start = colon + 1; while (/\s/.test(raw[start] || "")) start += 1;
+  if (raw[start] !== "{") return "";
+  let depth = 0; let inString = false; let escaped = false;
+  for (let index = start; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') { inString = true; continue; }
+    if (character === "{") depth += 1;
+    if (character === "}") { depth -= 1; if (depth === 0) return raw.slice(start, index + 1); }
+  }
+  return "";
+}
+
 export async function buildCheckout(input: { orderNo: string; amountCents: number; provider: PaymentProvider; description: string }) {
   const runtime = getRuntime(); const config = await loadPaymentConfig(input.provider);
   if (input.provider === "sandbox") return { paymentUrl: null, providerTradeNo: null };
@@ -44,22 +66,39 @@ export async function buildCheckout(input: { orderNo: string; amountCents: numbe
   }
   const callbackUrl = `${(runtime.APP_BASE_URL || "").replace(/\/$/, "")}/api/payments/callback?provider=${input.provider}`;
   if (input.provider === "alipay") {
+    const responseKey = "alipay_trade_precreate_response";
     const parameters: Record<string, string> = {
       app_id: config.merchantId,
-      method: "alipay.trade.page.pay",
+      method: "alipay.trade.precreate",
       format: "JSON",
       charset: "utf-8",
       sign_type: "RSA2",
       timestamp: chinaPaymentTimestamp(),
       version: "1.0",
       notify_url: callbackUrl,
-      return_url: config.details.returnUrl || `${(runtime.APP_BASE_URL || "").replace(/\/$/, "")}/workspace`,
-      biz_content: JSON.stringify({ out_trade_no: input.orderNo, product_code: "FAST_INSTANT_TRADE_PAY", total_amount: (input.amountCents / 100).toFixed(2), subject: input.description.slice(0, 128) }),
+      biz_content: JSON.stringify({ out_trade_no: input.orderNo, total_amount: (input.amountCents / 100).toFixed(2), subject: input.description.slice(0, 128), timeout_express: "30m" }),
     };
     parameters.sign = await rsaSha256Sign(alipayRequestSignContent(parameters), config.details.appPrivateKey || "");
-    const checkout = new URL(config.checkoutUrl);
-    checkout.search = new URLSearchParams(parameters).toString();
-    return { paymentUrl: checkout.toString(), providerTradeNo: null };
+    const response = await fetch(config.checkoutUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8", Accept: "application/json" },
+      body: new URLSearchParams(parameters).toString(), signal: AbortSignal.timeout(15000),
+    });
+    const raw = await response.text();
+    if (!response.ok) throw new PublicApiError(502, `支付宝下单 HTTP ${response.status}`, "payment_gateway_error");
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(raw) as Record<string, unknown>; }
+    catch { throw new PublicApiError(502, "支付宝下单返回了无效 JSON。", "payment_gateway_error"); }
+    const payload = parsed[responseKey] as Record<string, unknown> | undefined;
+    if (!payload) throw new PublicApiError(502, "支付宝下单返回缺少业务响应。", "payment_gateway_error");
+    const signedContent = extractAlipayJsonObject(raw, responseKey);
+    const signature = typeof parsed.sign === "string" ? parsed.sign : "";
+    const signatureValid = Boolean(signedContent && signature && await rsaSha256Verify(signedContent, signature, config.details.alipayPublicKey || ""));
+    if (!signatureValid) throw new PublicApiError(502, "支付宝下单响应验签失败。", "payment_gateway_error");
+    if (String(payload.code || "") !== "10000") throw new PublicApiError(502, String(payload.sub_msg || payload.msg || payload.sub_code || "支付宝下单失败。"), "payment_gateway_error");
+    const qrCode = typeof payload.qr_code === "string" ? payload.qr_code : "";
+    if (!qrCode) throw new PublicApiError(502, "支付宝下单成功但没有返回 qr_code。", "payment_gateway_error");
+    return { paymentUrl: qrCode, providerTradeNo: null };
   }
   if (input.provider === "wechat") {
     try {
