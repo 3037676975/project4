@@ -77,6 +77,14 @@ export async function POST(request: Request) {
         VALUES (?, ?, ?, ?, ?, 'requested', ?, ?, ?)`)
         .bind(id, order.id, context.tenantId, order.amount_cents, reason, context.memberId, now, now).run();
       await writePaymentLabLog({ direction: "refund", provider: order.provider, eventType: "refund.requested", orderNo, status: "requested", message: "企业提交退款申请。", detail: { refundId: id, amountCents: order.amount_cents, reason } });
+      if (order.provider === "wechat") {
+        await writePaymentLabLog({ direction: "refund", provider: "wechat", eventType: "wechat.v2.refund.manual", orderNo, status: "requested", message: "微信 V2 自动退款需要商户 API 证书与双向 TLS；当前退款申请保留为人工处理，未误走 V3 接口。", detail: { refundId: id } });
+        return Response.json({
+          saved: true,
+          refund: { id, orderNo, amountCents: order.amount_cents, status: "requested" },
+          message: "微信支付 V2 退款申请已记录。V2 自动退款需要商户 API 证书/双向 TLS，请在微信商户平台处理；完成后再同步退款状态。",
+        }, { status: 202 });
+      }
       let submitted: Awaited<ReturnType<typeof submitRefund>>;
       try { submitted = await submitRefund({ refundId: id, orderNo, amountCents: order.amount_cents, reason, provider: order.provider }); }
       catch (error) {
