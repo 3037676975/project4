@@ -47,6 +47,7 @@ services:
     restart: unless-stopped
     volumes:
       - knowflow-state:/app/.wrangler
+      - ./.env.private:/app/.env.private:ro
 
   qdrant:
     image: qdrant/qdrant:v1.15.4
