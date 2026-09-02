@@ -14,11 +14,16 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 // Private Docker deployments pass these values at container start. Sites
 // deployments continue to receive their bindings and secrets from the host.
 const localRuntimeKeys = [
-  "APP_ENV", "APP_BASE_URL", "LOCAL_AUTH_EMAIL", "LOCAL_AUTH_NAME", "CONFIG_ENCRYPTION_KEY",
+  "APP_ENV", "APP_BASE_URL",
+  "LOCAL_AUTH_EMAIL", "LOCAL_AUTH_NAME", "LOCAL_ADMIN_PASSWORD", "LOCAL_AUTH_SESSION_SECRET",
+  "PLATFORM_ADMIN_EMAILS", "CONFIG_ENCRYPTION_KEY",
   "PARSER_API_KEY", "INFINITY_API_KEY", "DEEPSEEK_API_KEY",
   "PAYMENT_MODE", "PAYMENT_PROVIDER", "PAYMENT_CHECKOUT_URL", "PAYMENT_REFUND_URL", "PAYMENT_CALLBACK_SECRET", "PAYMENT_MERCHANT_ID",
   "OPERATIONS_SWEEP_SECRET",
   "QDRANT_URL", "QDRANT_API_KEY", "QDRANT_COLLECTION", "QDRANT_VECTOR_SIZE",
+  "SMTP_ENABLED", "SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM_EMAIL", "SMTP_FROM_NAME", "SMTP_USE_SSL", "SMTP_USE_STARTTLS",
+  "MAIL_RELAY_URL", "MAIL_RELAY_TOKEN",
+  "EMAIL_CODE_EXPIRY_MINUTES", "EMAIL_CODE_RESEND_SECONDS", "EMAIL_CODE_MAX_ATTEMPTS", "EMAIL_CODE_LENGTH",
 ] as const;
 const localRuntimeVars = Object.fromEntries(localRuntimeKeys.flatMap((key) => process.env[key] ? [[key, process.env[key]!]] : []));
 
