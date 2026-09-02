@@ -25,7 +25,14 @@ jobs:
         run: |
           set -euo pipefail
           test -f .sync/project4.patch.part00
-          cat .sync/project4.patch.part* | base64 -d | gzip -d > /tmp/project4.patch
+          cat \
+            .sync/project4.patch.part00 \
+            .sync/project4.patch.part01a \
+            .sync/project4.patch.part01b \
+            .sync/project4.patch.part02 \
+            .sync/project4.patch.part03 \
+            .sync/project4.patch.part04 \
+            | base64 -d | gzip -d > /tmp/project4.patch
           echo '4ca8a8f8465e06aca239df96e0975227d1fae2dca8dae74723e6df689c8e8bd6  /tmp/project4.patch' | sha256sum -c -
           git apply --check /tmp/project4.patch
           git apply /tmp/project4.patch
