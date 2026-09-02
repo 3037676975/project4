@@ -19,7 +19,7 @@ export type ProviderQueryResult = {
   message: string;
 };
 
-const sensitiveKey = /(secret|password|private|api.?key|signature|token|authorization|ciphertext|iv)/i;
+const sensitiveKey = /(secret|password|private|api.*key|signature|token|authorization|ciphertext|(^|[_-])iv($|[_-]))/i;
 
 function safeDetail(value: unknown, depth = 0): unknown {
   if (depth > 5) return "[depth-limited]";
