@@ -138,6 +138,14 @@ type TencentOcrResponse = {
   };
 };
 
+const TENCENT_TEXT_ACTIONS = new Set(["GeneralBasicOCR", "GeneralAccurateOCR", "GeneralFastOCR", "GeneralHandwritingOCR"]);
+
+function tencentTextPayload(action: string, source: Record<string, unknown>) {
+  if (action === "GeneralBasicOCR") return { ...source, LanguageType: "zh", DetectDirection: true, Paragraph: true };
+  if (action === "GeneralAccurateOCR") return { ...source, EnableDetectSplit: true, ConfigID: "OCR", WordsType: "0" };
+  return source;
+}
+
 async function callTencent(config: StoredProviderConfig, payload: Record<string, unknown>, requestedAction?: string) {
   if (!config.credentialId) throw new Error("腾讯云 SecretId 尚未配置");
   const host = "ocr.tencentcloudapi.com"; const service = "ocr"; const timestamp = Math.floor(Date.now() / 1000);
@@ -157,7 +165,7 @@ async function callTencent(config: StoredProviderConfig, payload: Record<string,
     headers: {
       Authorization: authorization,
       "Content-Type": "application/json; charset=utf-8",
-      "X-TC-Action": requestedAction || (config.model === "GeneralAccurateOCR" ? "GeneralAccurateOCR" : "GeneralBasicOCR"),
+      "X-TC-Action": requestedAction || (TENCENT_TEXT_ACTIONS.has(config.model) ? config.model : "GeneralBasicOCR"),
       "X-TC-Timestamp": String(timestamp),
       "X-TC-Version": "2018-11-19",
       "X-TC-Region": config.region || "ap-guangzhou",
@@ -185,16 +193,17 @@ export async function parseWithTencentOcr(config: StoredProviderConfig, file: Fi
   if (!isPdf(file) && !isImage(file)) throw new Error("腾讯云通用 OCR 仅处理图片和 PDF；Office 文件请使用 Docling 兼容服务");
   const encoded = bufferToBase64(await file.arrayBuffer());
   const table = mode === "table"; const action = table ? (config.secondaryModel || "RecognizeTableOCR") : undefined;
+  if (isPdf(file) && config.model === "GeneralHandwritingOCR" && !table) throw new Error("腾讯云通用手写体接口仅支持图片；PDF 请切换通用高精度识别");
   if (encoded.length > 7 * 1024 * 1024) throw new Error("腾讯云 OCR 要求 Base64 文件不超过 7 MB，请压缩或拆分文件");
   if (!isPdf(file)) {
-    const data = await callTencent(config, table ? { ImageBase64: encoded, TableLanguage: "zh" } : { ImageBase64: encoded, LanguageType: "zh" }, action);
+    const data = await callTencent(config, table ? { ImageBase64: encoded, TableLanguage: "zh" } : tencentTextPayload(config.model, { ImageBase64: encoded }), action);
     const text = table ? tencentTableText(data) : tencentText(data);
     if (!text) throw new Error("腾讯云 OCR 没有识别到文字");
     return { text, pageCount: 1, engine: `tencent:${table ? config.secondaryModel || "RecognizeTableOCR" : config.model}` };
   }
   const payload = (page: number) => table
     ? { ImageBase64: encoded, IsPdf: true, PdfPageNumber: page, TableLanguage: "zh" }
-    : { ImageBase64: encoded, IsPdf: true, PdfPageNumber: page, LanguageType: "zh" };
+    : tencentTextPayload(config.model, { ImageBase64: encoded, IsPdf: true, PdfPageNumber: page });
   const first = await callTencent(config, payload(1), action);
   const total = Math.max(1, Number(first.PdfPageSize || 1));
   if (total > 100) throw new Error("扫描 PDF 超过 100 页，请拆分后上传以控制 OCR 调用次数");
@@ -213,7 +222,7 @@ export async function testBaiduOcr(config: StoredProviderConfig) {
 }
 
 export async function testTencentOcr(config: StoredProviderConfig) {
-  const data = await callTencent(config, { ImageUrl: OCR_TEST_IMAGE_URL, LanguageType: "zh" });
+  const data = await callTencent(config, tencentTextPayload(config.model, { ImageUrl: OCR_TEST_IMAGE_URL }));
   if (!tencentText(data)) throw new Error("腾讯云鉴权成功，但测试图片没有返回文字");
   return { message: "腾讯云 OCR 连接成功", engine: config.model };
 }

@@ -1,5 +1,5 @@
 import { loadPaymentConfig, paymentConfigReady } from "./payment-config";
-import { alipaySignContent, chinaPaymentTimestamp, rsaSha256Sign, rsaSha256Verify } from "./payment-crypto";
+import { alipayRequestSignContent, chinaPaymentTimestamp, rsaSha256Sign, rsaSha256Verify } from "./payment-crypto";
 import { queryPaymentProvider } from "./payment-lab";
 import { getRuntime } from "./runtime";
 import { createWechatV2NativeOrder } from "./wechat-v2";
@@ -76,7 +76,7 @@ async function createAlipayTestOrder(orderNo: string): Promise<string> {
       timeout_express: "5m",
     }),
   };
-  parameters.sign = await rsaSha256Sign(alipaySignContent(parameters), config.details.appPrivateKey || "");
+  parameters.sign = await rsaSha256Sign(alipayRequestSignContent(parameters), config.details.appPrivateKey || "");
   const response = await fetch(config.checkoutUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8", Accept: "application/json" },

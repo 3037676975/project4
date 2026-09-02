@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { alipaySignContent, decryptWechatResource, rsaSha256Sign, rsaSha256Verify, yuanToCents } from "../lib/payment-crypto.ts";
+import { alipayNotificationSignContent, alipayRequestSignContent, decryptWechatResource, rsaSha256Sign, rsaSha256Verify, yuanToCents } from "../lib/payment-crypto.ts";
 
 function pem(label, buffer) {
   const base64 = Buffer.from(buffer).toString("base64").match(/.{1,64}/g).join("\n");
@@ -8,7 +8,8 @@ function pem(label, buffer) {
 }
 
 test("Alipay RSA2 canonical text excludes sign fields and sorts keys", () => {
-  assert.equal(alipaySignContent({ z: "last", sign: "ignore", sign_type: "RSA2", a: "first", empty: "" }), "a=first&z=last");
+  assert.equal(alipayRequestSignContent({ z: "last", sign: "ignore", sign_type: "RSA2", a: "first", empty: "" }), "a=first&sign_type=RSA2&z=last");
+  assert.equal(alipayNotificationSignContent({ z: "last", sign: "ignore", sign_type: "RSA2", a: "first", empty: "" }), "a=first&z=last");
   assert.equal(yuanToCents("1"), 100);
   assert.equal(yuanToCents("10.09"), 1009);
   assert.equal(Number.isNaN(yuanToCents("1.009")), true);

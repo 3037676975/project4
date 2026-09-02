@@ -11,6 +11,7 @@ export type TenantContext = {
   email: string;
   displayName: string;
   role: "owner" | "admin" | "member" | "viewer";
+  platformPreview?: boolean;
 };
 
 const PLAN_SEEDS = [
@@ -45,6 +46,7 @@ async function seedLocalProviders(tenantId: string) {
   const runtime = getRuntime(); if (runtime.APP_ENV !== "local" || !runtime.CONFIG_ENCRYPTION_KEY) return;
   const specs = [
     runtime.INFINITY_API_KEY ? { kind: "embedding", provider: "infinity", baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-m3", dimensions: 1024, key: runtime.INFINITY_API_KEY } : null,
+    runtime.INFINITY_API_KEY ? { kind: "rerank", provider: "infinity", baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-reranker-v2-m3", dimensions: null, key: runtime.INFINITY_API_KEY } : null,
     runtime.PARSER_API_KEY ? { kind: "ocr", provider: "docling", baseUrl: "http://document-parser:8001", model: "docling+rapidocr", dimensions: null, key: runtime.PARSER_API_KEY } : null,
     runtime.DEEPSEEK_API_KEY ? { kind: "generation", provider: "deepseek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", dimensions: null, key: runtime.DEEPSEEK_API_KEY } : null,
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -77,6 +79,18 @@ export async function getOrCreateTenant(request: Request): Promise<TenantContext
       .bind(identity.accountId, new Date().toISOString(), existing.member_id).run();
     await seedLocalProviders(existing.tenant_id);
     return { tenantId: existing.tenant_id, memberId: existing.member_id, accountId: identity.accountId, tenantName: existing.tenant_name, email: identity.email, displayName: existing.display_name || identity.displayName, role: existing.role };
+  }
+  if (requestedTenantId) {
+    const [platformAdmin, tenant] = await Promise.all([
+      runtime.DB.prepare("SELECT id FROM platform_admins WHERE (account_id = ? OR email = ?) AND role = 'super_admin' AND status = 'active' LIMIT 1")
+        .bind(identity.accountId, identity.email).first<{ id: string }>(),
+      runtime.DB.prepare("SELECT id, name FROM tenants WHERE id = ? AND status = 'active' LIMIT 1")
+        .bind(requestedTenantId).first<{ id: string; name: string }>(),
+    ]);
+    if (platformAdmin && tenant) {
+      return { tenantId: tenant.id, memberId: `platform-preview:${platformAdmin.id}`, accountId: identity.accountId, tenantName: tenant.name,
+        email: identity.email, displayName: identity.displayName, role: "viewer", platformPreview: true };
+    }
   }
   if (requestedTenantId) throw Object.assign(new Error("您无权访问所选企业工作区，或成员账号已被禁用。"), { status: 403 });
   throw Object.assign(new Error("当前账号尚未加入企业工作区，请注册企业或让企业管理员创建成员账号。"), { status: 403 });

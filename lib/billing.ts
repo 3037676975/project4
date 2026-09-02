@@ -1,7 +1,7 @@
 import { PublicApiError } from "./api-keys";
 import { constantTimeEqual, hmacSha256, sha256 } from "./security";
 import { getRuntime } from "./runtime";
-import { alipaySignContent, chinaPaymentTimestamp, rsaSha256Sign, rsaSha256Verify, yuanToCents } from "./payment-crypto";
+import { alipayNotificationSignContent, alipayRequestSignContent, chinaPaymentTimestamp, rsaSha256Sign, rsaSha256Verify, yuanToCents } from "./payment-crypto";
 import { channelSupportsAmount, loadPaymentConfig, loadPaymentConfigs, paymentConfigReady, publicPaymentChannel, type PaymentProvider } from "./payment-config";
 import { createWechatV2NativeOrder, wechatV2ParseXml, wechatV2Verify } from "./wechat-v2";
 
@@ -9,16 +9,21 @@ export type { PaymentProvider } from "./payment-config";
 
 export async function paymentState() {
   const runtime = getRuntime(); const configs = await loadPaymentConfigs();
-  let publicBaseReady = false;
-  try { publicBaseReady = new URL(runtime.APP_BASE_URL || "").protocol === "https:"; } catch { publicBaseReady = false; }
+  let publicBaseReady = false; let callbackHttpsReady = false;
+  try {
+    const publicBase = new URL(runtime.APP_BASE_URL || "");
+    publicBaseReady = publicBase.protocol === "http:" || publicBase.protocol === "https:";
+    callbackHttpsReady = publicBase.protocol === "https:";
+  } catch { publicBaseReady = false; callbackHttpsReady = false; }
   const channels = configs.map((config) => ({ ...publicPaymentChannel(config), ready: publicBaseReady && paymentConfigReady(config) }));
   const sandbox = configs.find((item) => item.mode === "sandbox");
-  if (sandbox) return { mode: "sandbox", provider: "sandbox" as const, ready: true, source: sandbox.source, merchantName: sandbox.merchantName, channels };
+  if (sandbox) return { mode: "sandbox", provider: "sandbox" as const, ready: true, callbackHttpsReady, source: sandbox.source, merchantName: sandbox.merchantName, channels };
   const preferred = channels.find((item) => item.mode === "production" && item.ready);
   return {
     mode: configs.some((item) => item.mode === "production") ? "production" : "disabled",
     provider: preferred?.provider || channels[0]?.provider || "gateway",
     ready: Boolean(preferred),
+    callbackHttpsReady,
     source: configs[0]?.source || "database",
     merchantName: configs[0]?.merchantName || "",
     channels,
@@ -51,7 +56,7 @@ export async function buildCheckout(input: { orderNo: string; amountCents: numbe
       return_url: config.details.returnUrl || `${(runtime.APP_BASE_URL || "").replace(/\/$/, "")}/workspace`,
       biz_content: JSON.stringify({ out_trade_no: input.orderNo, product_code: "FAST_INSTANT_TRADE_PAY", total_amount: (input.amountCents / 100).toFixed(2), subject: input.description.slice(0, 128) }),
     };
-    parameters.sign = await rsaSha256Sign(alipaySignContent(parameters), config.details.appPrivateKey || "");
+    parameters.sign = await rsaSha256Sign(alipayRequestSignContent(parameters), config.details.appPrivateKey || "");
     const checkout = new URL(config.checkoutUrl);
     checkout.search = new URLSearchParams(parameters).toString();
     return { paymentUrl: checkout.toString(), providerTradeNo: null };
@@ -223,7 +228,7 @@ export async function parsePaymentCallback(request: Request, provider: Exclude<P
     const config = await loadPaymentConfig("alipay"); const parameters = new URLSearchParams(rawBody);
     const values: Record<string, string> = {}; parameters.forEach((value, key) => { values[key] = value; });
     const signatureValid = values.sign_type === "RSA2" && Boolean(values.sign) &&
-      await rsaSha256Verify(alipaySignContent(values), values.sign || "", config.details.alipayPublicKey || "") &&
+      await rsaSha256Verify(alipayNotificationSignContent(values), values.sign || "", config.details.alipayPublicKey || "") &&
       (!values.app_id || values.app_id === config.merchantId);
     const status = values.trade_status; const eventType = status === "TRADE_SUCCESS" || status === "TRADE_FINISHED" ? "payment.succeeded" : null;
     const amountCents = yuanToCents(values.total_amount || "");
@@ -319,7 +324,7 @@ export async function submitRefund(input: { refundId: string; orderNo: string; a
       timestamp: chinaPaymentTimestamp(), version: "1.0",
       biz_content: JSON.stringify({ out_trade_no: input.orderNo, refund_amount: (input.amountCents / 100).toFixed(2), refund_reason: input.reason.slice(0, 256), out_request_no: input.refundId }),
     };
-    parameters.sign = await rsaSha256Sign(alipaySignContent(parameters), config.details.appPrivateKey || "");
+    parameters.sign = await rsaSha256Sign(alipayRequestSignContent(parameters), config.details.appPrivateKey || "");
     const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8" }, body: new URLSearchParams(parameters), signal: AbortSignal.timeout(15000) });
     const data = await response.json().catch(() => ({})) as { alipay_trade_refund_response?: { code?: string; msg?: string; sub_msg?: string; trade_no?: string } };
     const result = data.alipay_trade_refund_response;

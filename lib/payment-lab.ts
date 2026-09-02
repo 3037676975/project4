@@ -1,5 +1,5 @@
 import { loadPaymentConfig, paymentConfigReady, type PaymentProvider } from "./payment-config";
-import { alipaySignContent, chinaPaymentTimestamp, rsaSha256Sign, rsaSha256Verify, yuanToCents } from "./payment-crypto";
+import { alipayRequestSignContent, chinaPaymentTimestamp, rsaSha256Sign, rsaSha256Verify, yuanToCents } from "./payment-crypto";
 import { getRuntime } from "./runtime";
 import { queryWechatV2Order } from "./wechat-v2";
 
@@ -128,7 +128,7 @@ async function queryAlipay(orderNo: string): Promise<ProviderQueryResult> {
     version: "1.0",
     biz_content: JSON.stringify({ out_trade_no: orderNo }),
   };
-  parameters.sign = await rsaSha256Sign(alipaySignContent(parameters), config.details.appPrivateKey || "");
+  parameters.sign = await rsaSha256Sign(alipayRequestSignContent(parameters), config.details.appPrivateKey || "");
   const response = await fetch(config.checkoutUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8", Accept: "application/json" },

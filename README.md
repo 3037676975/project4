@@ -45,9 +45,20 @@ bash scripts/init-private.sh
 .\scripts\init-private.ps1
 ```
 
-脚本会生成仅本机使用的 `.env.private`，并在终端显示一次 `admin@local.test` 的随机超级管理员初始密码；随后自动执行 D1 迁移并启动 KnowFlow、Qdrant、Docling/RapidOCR、Infinity/BGE-M3 和每分钟运营巡检。访问 `http://localhost:3000/login` 后用初始账号密码登录，系统会创建站内超级管理员并强制修改密码。本地支付采用沙箱；正式微信/支付宝收款必须另外配置商户网关。
+脚本会生成仅本机使用的 `.env.private`，并在终端显示一次 `admin@local.test` 的随机超级管理员初始密码；随后自动执行 D1 迁移并启动 KnowFlow、Qdrant、邮件中继、每分钟运营巡检，以及低资源 CPU Infinity（`BAAI/bge-m3` + `BAAI/bge-reranker-v2-m3`）。Docling / RapidOCR 独立为 `parser` profile，不会在 4G 服务器的普通部署中自动构建。访问 `http://localhost:3000/login` 后用初始账号密码登录，系统会创建站内超级管理员并强制修改密码。本地支付采用沙箱；正式微信/支付宝收款必须另外配置商户网关。
 
 线上首次部署时，站点所有者打开 `/setup` 完成一次身份确认并自行创建超级管理员密码；以后超级管理员从 `/platform/login`、内部管理员从 `/admin/login`、企业账号从 `/workspace/login` 登录。密码永远不以明文写入数据库，只保存带随机盐的哈希。`PLATFORM_ADMIN_EMAILS` 只用于保护首次激活邮箱；内部管理员和企业成员由各自后台直接创建账号与临时密码。
+
+
+### 2 核 4G 私有服务器的模型服务
+
+默认部署会单独启动 `embedding` 容器，使用 Infinity CPU 镜像同时提供 `BAAI/bge-m3` Embedding 与 `BAAI/bge-reranker-v2-m3` Rerank；批量大小限制为 2，并关闭 `torch.compile`，降低首次加载的内存峰值。模型保存在 `infinity-cache` 卷中，后续重建无需重复下载。Infinity 启动失败不会让 KnowFlow 主站退出。
+
+Docling / RapidOCR 不跟随 Infinity 启动。如服务器后续扩容并确需本地复杂文档解析，再单独执行：
+
+```bash
+docker compose --env-file .env.private -f docker-compose.private.yml --profile parser up -d --build document-parser
+```
 
 ## 后台入口与账号规则
 

@@ -5,20 +5,23 @@ import { createUserAccount, resetUserPassword } from "../../../lib/app-auth";
 export async function GET(request: Request) {
   try {
     const context = await getOrCreateTenant(request); const { DB } = getRuntime();
+    const workspaceQuery = context.platformPreview
+      ? DB.prepare("SELECT id, name, slug, '平台只读' AS role FROM tenants WHERE status = 'active' ORDER BY name")
+      : DB.prepare(`SELECT t.id, t.name, t.slug, tm.role FROM tenant_members tm JOIN tenants t ON t.id = tm.tenant_id
+        WHERE tm.email = ? AND tm.status = 'active' AND t.status = 'active' ORDER BY t.name`).bind(context.email);
     const [tenant, members, workspaces, invitations] = await Promise.all([
       DB.prepare("SELECT id, name, slug, status, credits_balance, company_name, billing_email, privacy_retention_days, onboarding_completed, created_at FROM tenants WHERE id = ?").bind(context.tenantId).first<Record<string, unknown>>(),
       DB.prepare(`SELECT tm.id, tm.account_id, tm.email, tm.display_name, tm.role, tm.status, tm.created_at,
         ua.must_change_password, ua.last_login_at FROM tenant_members tm LEFT JOIN user_accounts ua ON ua.id = tm.account_id
         WHERE tm.tenant_id = ? ORDER BY tm.created_at`).bind(context.tenantId).all(),
-      DB.prepare(`SELECT t.id, t.name, t.slug, tm.role FROM tenant_members tm JOIN tenants t ON t.id = tm.tenant_id
-        WHERE tm.email = ? AND tm.status = 'active' AND t.status = 'active' ORDER BY t.name`).bind(context.email).all(),
+      workspaceQuery.all(),
       DB.prepare(`SELECT id, email, role, status, expires_at, created_at FROM tenant_invitations
         WHERE tenant_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 30`).bind(context.tenantId).all(),
     ]);
     return Response.json({ tenant: { id: tenant?.id, name: tenant?.name, slug: tenant?.slug, status: tenant?.status, creditsBalance: tenant?.credits_balance,
       companyName: tenant?.company_name, billingEmail: tenant?.billing_email, privacyRetentionDays: tenant?.privacy_retention_days,
       onboardingCompleted: Boolean(tenant?.onboarding_completed), createdAt: tenant?.created_at },
-      currentUser: { email: context.email, displayName: context.displayName, role: context.role },
+      currentUser: { email: context.email, displayName: context.displayName, role: context.role, platformPreview: Boolean(context.platformPreview) },
       workspaces: (workspaces.results as Array<Record<string, unknown>>).map((row) => ({ id: row.id, name: row.name, slug: row.slug, role: row.role })),
       members: (members.results as Array<Record<string, unknown>>).map((row) => ({ id: row.id, accountId: row.account_id, email: row.email, displayName: row.display_name, role: row.role, status: row.status, mustChangePassword: Boolean(row.must_change_password), lastLoginAt: row.last_login_at, createdAt: row.created_at })),
       invitations: (invitations.results as Array<Record<string, unknown>>).map((row) => ({ id: row.id, email: row.email, role: row.role, status: row.status, expiresAt: row.expires_at, createdAt: row.created_at })) });

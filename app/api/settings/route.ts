@@ -25,7 +25,7 @@ const DEFAULTS: Record<ProviderKind, {
 }> = {
   generation: { provider: "deepseek", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash", secondaryModel: null, dimensions: null, region: null },
   embedding: { provider: "infinity", baseUrl: "https://embedding.example.com/v1", model: "BAAI/bge-m3", secondaryModel: null, dimensions: 1024, region: null },
-  rerank: { provider: "siliconflow", baseUrl: "https://api.siliconflow.cn/v1", model: "BAAI/bge-reranker-v2-m3", secondaryModel: null, dimensions: null, region: null },
+  rerank: { provider: "infinity", baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-reranker-v2-m3", secondaryModel: null, dimensions: null, region: null },
   ocr: { provider: "docling", baseUrl: "https://parser.example.com", model: "rapidocr", secondaryModel: null, dimensions: null, region: null },
 };
 
@@ -38,16 +38,16 @@ function allowedProvider(kind: ProviderKind, value: unknown) {
   const provider = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (kind === "generation") return "deepseek";
   if (kind === "embedding" && (provider === "infinity" || provider === "openai")) return provider;
-  if (kind === "rerank" && provider === "siliconflow") return provider;
+  if (kind === "rerank" && (provider === "siliconflow" || provider === "infinity")) return provider;
   if (kind === "ocr" && ["docling", "compatible", "openai", "baidu", "tencent"].includes(provider)) return provider;
   if (kind === "embedding") throw new Error("Embedding 仅支持 Infinity 或 OpenAI。");
-  if (kind === "rerank") throw new Error("Rerank 当前仅支持硅基流动。");
+  if (kind === "rerank") throw new Error("Rerank 仅支持本机 Infinity 或硅基流动。");
   throw new Error("OCR 服务商无效。");
 }
 
 function normalizeBaseUrl(kind: ProviderKind, provider: string, value: string) {
   if (kind === "generation") return normalizeDeepSeekBaseUrl(value);
-  if (kind === "rerank") return normalizeSiliconFlowBaseUrl(value);
+  if (kind === "rerank") return provider === "siliconflow" ? normalizeSiliconFlowBaseUrl(value) : normalizeSelfHostedBaseUrl(value, "自建 Rerank 地址");
   if (kind === "ocr" && provider === "baidu") return normalizeBaiduOcrBaseUrl(value);
   if (kind === "ocr" && provider === "tencent") return normalizeTencentOcrBaseUrl(value);
   if (provider === "openai") return normalizeEmbeddingBaseUrl(value);
@@ -119,7 +119,7 @@ export async function POST(request: Request) {
     const model = typeof payload.model === "string" ? payload.model.trim() : "";
     if (!/^[a-zA-Z0-9._/-]{2,160}$/.test(model)) return Response.json({ error: "模型或引擎名称格式不正确。" }, { status: 400 });
     if (kind === "ocr" && provider === "baidu" && !["general_basic", "accurate_basic"].includes(model)) return Response.json({ error: "百度云 OCR 支持 general_basic 或 accurate_basic。" }, { status: 400 });
-    if (kind === "ocr" && provider === "tencent" && !["GeneralBasicOCR", "GeneralAccurateOCR"].includes(model)) return Response.json({ error: "腾讯云 OCR 支持 GeneralBasicOCR 或 GeneralAccurateOCR。" }, { status: 400 });
+    if (kind === "ocr" && provider === "tencent" && !["GeneralBasicOCR", "GeneralAccurateOCR", "GeneralFastOCR", "GeneralHandwritingOCR"].includes(model)) return Response.json({ error: "腾讯云 OCR 接口不在允许列表中。" }, { status: 400 });
     const secondaryModel = kind === "ocr" && provider === "baidu" ? (typeof payload.secondaryModel === "string" && payload.secondaryModel ? payload.secondaryModel : "table")
       : kind === "ocr" && provider === "tencent" ? (typeof payload.secondaryModel === "string" && payload.secondaryModel ? payload.secondaryModel : "RecognizeTableOCR") : null;
     if (kind === "ocr" && provider === "baidu" && secondaryModel !== "table") return Response.json({ error: "百度表格识别接口必须使用 table。" }, { status: 400 });
@@ -168,11 +168,11 @@ export async function POST(request: Request) {
     const reuseEmbeddingKey = kind === "rerank" && (typeof payload.reuseEmbeddingKey === "boolean" ? payload.reuseEmbeddingKey : current?.reuse_api_key_from === "embedding");
     let reuseApiKeyFrom: string | null = null;
     if (reuseEmbeddingKey) {
-      const embeddingSecret = await runtime.DB.prepare(`SELECT base_url, api_key_ciphertext, api_key_iv, api_key_hint
+      const embeddingSecret = await runtime.DB.prepare(`SELECT provider, base_url, api_key_ciphertext, api_key_iv, api_key_hint
         FROM platform_provider_configs WHERE kind = 'embedding' AND status = 'active'`)
-        .first<{ base_url: string; api_key_ciphertext: string | null; api_key_iv: string | null; api_key_hint: string | null }>();
-      if (!embeddingSecret?.api_key_ciphertext || !embeddingSecret.api_key_iv) return Response.json({ error: "请先配置可用的硅基流动 Embedding API Key，再选择复用密钥。" }, { status: 400 });
-      if (new URL(embeddingSecret.base_url).hostname !== "api.siliconflow.cn") return Response.json({ error: "只有 Embedding 同样使用硅基流动时，才能复用它的 API Key。" }, { status: 400 });
+        .first<{ provider: string; base_url: string; api_key_ciphertext: string | null; api_key_iv: string | null; api_key_hint: string | null }>();
+      if (!embeddingSecret?.api_key_ciphertext || !embeddingSecret.api_key_iv) return Response.json({ error: "请先配置可用的 Embedding 服务 Token，再选择复用密钥。" }, { status: 400 });
+      if (embeddingSecret.provider !== provider || new URL(embeddingSecret.base_url).origin !== new URL(baseUrl).origin) return Response.json({ error: "Embedding 与 Rerank 必须使用同一服务商和服务主机才能复用 Token。" }, { status: 400 });
       ciphertext = null; iv = null; keyHint = embeddingSecret.api_key_hint; credentialCiphertext = null; credentialIv = null; credentialIdHint = null; reuseApiKeyFrom = "embedding";
     }
     if (!reuseEmbeddingKey && (!ciphertext || !iv)) {

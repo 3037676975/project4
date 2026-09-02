@@ -66,7 +66,15 @@ export async function validateRsaPublicKey(value: string) {
   await importPublicKey(value);
 }
 
-export function alipaySignContent(parameters: Record<string, string>) {
+export function alipayRequestSignContent(parameters: Record<string, string>) {
+  return Object.entries(parameters)
+    .filter(([key, value]) => key !== "sign" && value !== "")
+    .sort(([left], [right]) => left.localeCompare(right, "en"))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
+}
+
+export function alipayNotificationSignContent(parameters: Record<string, string>) {
   return Object.entries(parameters)
     .filter(([key, value]) => key !== "sign" && key !== "sign_type" && value !== "")
     .sort(([left], [right]) => left.localeCompare(right, "en"))

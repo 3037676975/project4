@@ -65,7 +65,7 @@ services:
       retries: 12
 
   document-parser:
-    profiles: ["ai"]
+    profiles: ["parser"]
     build:
       context: ./services/document-parser
     environment:
@@ -93,18 +93,27 @@ services:
       retries: 12
 
   embedding:
-    profiles: ["ai"]
+    profiles: ["infinity"]
     image: michaelf34/infinity:latest-cpu
-    command: ["v2", "--model-id", "BAAI/bge-m3", "--served-model-name", "BAAI/bge-m3", "--engine", "torch", "--port", "7997", "--url-prefix", "/v1", "--api-key", "${INFINITY_API_KEY}"]
+    command: ["v2", "--model-id", "BAAI/bge-m3", "--model-id", "BAAI/bge-reranker-v2-m3", "--served-model-name", "BAAI/bge-m3", "--served-model-name", "BAAI/bge-reranker-v2-m3", "--batch-size", "2", "--batch-size", "2", "--engine", "torch", "--no-compile", "--port", "7997", "--url-prefix", "/v1", "--api-key", "${INFINITY_API_KEY}"]
     environment:
       HF_HOME: /app/.cache
       INFINITY_ANONYMOUS_USAGE_STATS: "0"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      TOKENIZERS_PARALLELISM: "false"
     ports:
       - "127.0.0.1:7997:7997"
     restart: unless-stopped
     shm_size: 2gb
     volumes:
       - infinity-cache:/app/.cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:7997/v1/models',headers={'Authorization':'Bearer '+os.environ['INFINITY_API_KEY']}); urllib.request.urlopen(r,timeout=5)"]
+      interval: 20s
+      timeout: 8s
+      retries: 30
+      start_period: 300s
 
   operations-sweeper:
     image: curlimages/curl:8.15.0

@@ -80,7 +80,7 @@ export async function POST(request: Request) {
       if (first.index !== 0 || !Number.isFinite(Number(first.relevance_score))) {
         return Response.json({ ok: false, error: "Rerank 已响应，但没有把保修资料排在第一位。" }, { status: 422 });
       }
-      return Response.json({ ok: true, message: "硅基流动 BGE-Reranker 连接成功", score: Number(first.relevance_score) });
+      return Response.json({ ok: true, message: `${config.provider === "infinity" ? "本机 Infinity" : "硅基流动"} BGE-Reranker 连接成功`, score: Number(first.relevance_score) });
     }
 
     if (kind === "ocr") {
