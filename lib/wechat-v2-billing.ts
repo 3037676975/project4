@@ -1,7 +1,7 @@
 import { PublicApiError } from "./api-keys";
 import { channelSupportsAmount, loadPaymentConfig, paymentConfigReady } from "./payment-config";
 import { getRuntime } from "./runtime";
-import { createWechatV2NativeOrder } from "./wechat-v2";
+import { createConfiguredWechatV2NativeOrder } from "./wechat-v2-checkout";
 
 function orderNumber() {
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -26,10 +26,6 @@ export async function createWechatV2BillingOrder(input: {
   const runtime = getRuntime();
   const config = await loadPaymentConfig("wechat");
   if (!paymentConfigReady(config)) throw new PublicApiError(503, "微信支付 V2 尚未完成全局配置。", "payment_not_configured");
-  let appBase: URL;
-  try { appBase = new URL(runtime.APP_BASE_URL || ""); }
-  catch { throw new PublicApiError(503, "APP_BASE_URL 未配置，不能生成微信支付回调地址。", "payment_not_configured"); }
-  if (appBase.protocol !== "https:") throw new PublicApiError(503, "微信正式收款要求 APP_BASE_URL 使用公网 HTTPS。", "payment_not_configured");
 
   const target = await runtime.DB.prepare("SELECT id, code, name, monthly_price_cents FROM plans WHERE code = ? AND active = 1")
     .bind(input.planCode).first<{ id: string; code: string; name: string; monthly_price_cents: number }>();
@@ -44,17 +40,14 @@ export async function createWechatV2BillingOrder(input: {
   if (existing) return serializeOrder(existing);
 
   const orderNo = orderNumber();
-  let checkout: Awaited<ReturnType<typeof createWechatV2NativeOrder>>;
+  let checkout: Awaited<ReturnType<typeof createConfiguredWechatV2NativeOrder>>;
   try {
-    checkout = await createWechatV2NativeOrder({
-      appId: config.details.appId || "",
-      merchantId: config.merchantId,
-      apiV2Key: config.details.apiV2Key || "",
-      unifiedOrderUrl: config.checkoutUrl,
-      orderQueryUrl: config.details.queryUrl || "https://api.mch.weixin.qq.com/pay/orderquery",
-      notifyUrl: `${appBase.toString().replace(/\/$/, "")}/api/payments/callback?provider=wechat`,
-      spbillCreateIp: config.details.spbillCreateIp || "",
-    }, { orderNo, amountCents: target.monthly_price_cents, description: `KnowFlow ${target.name}月度订阅` });
+    checkout = await createConfiguredWechatV2NativeOrder({
+      orderNo,
+      amountCents: target.monthly_price_cents,
+      description: `KnowFlow ${target.name}月度订阅`,
+      notifyPath: "/api/payments/callback?provider=wechat",
+    });
   } catch (error) {
     throw new PublicApiError(502, error instanceof Error ? error.message : "微信 V2 下单失败。", "payment_gateway_error");
   }
