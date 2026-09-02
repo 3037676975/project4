@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 
 type Config = {
   mode: string; provider: string; merchantName: string; merchantId: string; checkoutUrl: string; displayName: string;
@@ -72,7 +72,7 @@ export default function WechatV2Client() {
   </div></main>;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label style={{ display: "block", marginTop: 16 }}><span style={{ display: "block", fontSize: 13, fontWeight: 800, marginBottom: 7 }}>{label}</span>{children}</label>; }
+function Field({ label, children }: { label: string; children: ReactNode }) { return <label style={{ display: "block", marginTop: 16 }}><span style={{ display: "block", fontSize: 13, fontWeight: 800, marginBottom: 7 }}>{label}</span>{children}</label>; }
 const page = { minHeight: "100vh", background: "#f5f7fb", color: "#172033", padding: 28 } as const;
 const wrap = { maxWidth: 1050, margin: "0 auto" } as const;
 const head = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20, marginBottom: 20 } as const;
