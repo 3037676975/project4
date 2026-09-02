@@ -1,0 +1,61 @@
+name: Validate builtin manual embedding repair
+on:
+  push:
+    branches: [fix-builtin-manual-embedding-20260903]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix-builtin-manual-embedding-20260903
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - name: Apply fix
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          const ragPath = 'lib/rag.ts';
+          let rag = fs.readFileSync(ragPath, 'utf8');
+          const oldExisting = `  const existing = await runtime.DB.prepare("SELECT COUNT(*) AS count FROM knowledge_chunks WHERE tenant_id = ? AND knowledge_base_id = ? AND document_id = ?")\n    .bind(tenantId, knowledgeBaseId, BUILTIN_MANUAL.id).first<{ count: number }>();\n  if ((existing?.count ?? 0) > 0) return;\n  const chunks = splitIntoChunks(BUILTIN_MANUAL.content);\n  const embedded = await embedTexts(tenantId, chunks).catch(() => null);`;
+          const newExisting = `  const existing = await runtime.DB.prepare("SELECT COUNT(*) AS count, MAX(embedding_model) AS model FROM knowledge_chunks WHERE tenant_id = ? AND knowledge_base_id = ? AND document_id = ?")\n    .bind(tenantId, knowledgeBaseId, BUILTIN_MANUAL.id).first<{ count: number; model: string | null }>();\n  if ((existing?.count ?? 0) > 0 && existing?.model) return;\n  const chunks = splitIntoChunks(BUILTIN_MANUAL.content);\n  const embedded = await embedTexts(tenantId, chunks).catch(() => null);\n  if ((existing?.count ?? 0) > 0) {\n    if (!embedded) return;\n    await deleteQdrantDocument(tenantId, knowledgeBaseId, BUILTIN_MANUAL.id).catch(() => undefined);\n    await runtime.DB.prepare("DELETE FROM knowledge_chunks WHERE tenant_id = ? AND knowledge_base_id = ? AND document_id = ?")\n      .bind(tenantId, knowledgeBaseId, BUILTIN_MANUAL.id).run();\n  }`;
+          if (!rag.includes(oldExisting)) throw new Error('ensureBuiltinChunks marker not found');
+          rag = rag.replace(oldExisting, newExisting);
+          fs.writeFileSync(ragPath, rag);
+
+          const routePath = 'app/api/knowledge/route.ts';
+          let route = fs.readFileSync(routePath, 'utf8');
+          const oldImport = `import { indexDocument, parseDocumentWithConfiguredOcr } from "../../../lib/rag";`;
+          const newImport = `import { ensureBuiltinChunks, indexDocument, parseDocumentWithConfiguredOcr } from "../../../lib/rag";`;
+          if (!route.includes(oldImport)) throw new Error('rag import marker not found');
+          route = route.replace(oldImport, newImport);
+          const oldBuiltin = `    if (kb.is_default && await isBuiltinManualVisible()) {\n      const builtin = await DB.prepare(`;
+          const newBuiltin = `    if (kb.is_default && await isBuiltinManualVisible()) {\n      if (inheritedEmbedding) await ensureBuiltinChunks(context.tenantId, kb.id).catch((error) => console.error("[knowflow-rag] builtin manual embedding repair failed", error));\n      const builtin = await DB.prepare(`;
+          if (!route.includes(oldBuiltin)) throw new Error('builtin status marker not found');
+          route = route.replace(oldBuiltin, newBuiltin);
+          fs.writeFileSync(routePath, route);
+          NODE
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Validate repair boundaries
+        run: |
+          grep -q 'MAX(embedding_model) AS model' lib/rag.ts
+          grep -q 'if ((existing?.count ?? 0) > 0 && existing?.model) return' lib/rag.ts
+          grep -q 'deleteQdrantDocument(tenantId, knowledgeBaseId, BUILTIN_MANUAL.id)' lib/rag.ts
+          grep -q 'ensureBuiltinChunks(context.tenantId, kb.id)' app/api/knowledge/route.ts
+      - name: Commit validated source changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add lib/rag.ts app/api/knowledge/route.ts
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(rag): rebuild builtin manual embeddings after provider setup'
+            git push origin HEAD:fix-builtin-manual-embedding-20260903
+          fi
