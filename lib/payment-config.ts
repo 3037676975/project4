@@ -13,12 +13,18 @@ export type PaymentDetails = {
   maxAmountCents?: number;
   callbackSecret?: string;
   appId?: string;
+  apiV2Key?: string;
+  queryUrl?: string;
+  spbillCreateIp?: string;
+  wechatApiVersion?: "v2";
+  // Legacy V3 fields are retained only so old encrypted configuration can be decoded safely.
+  // They are not considered ready and are removed the next time the WeChat V2 config is saved.
   merchantSerialNo?: string;
   apiV3Key?: string;
   merchantPrivateKey?: string;
   platformPublicKeyId?: string;
   platformPublicKey?: string;
-  signType?: "RSA2";
+  signType?: "RSA2" | "HMAC-SHA256";
   appPrivateKey?: string;
   alipayPublicKey?: string;
   returnUrl?: string;
@@ -63,13 +69,15 @@ export function validPaymentMode(value: unknown): PaymentMode {
 
 function defaults(provider: Exclude<PaymentProvider, "sandbox">): PaymentDetails {
   return {
-    displayName: provider === "wechat" ? "微信支付" : provider === "alipay" ? "支付宝" : "兼容支付网关",
+    displayName: provider === "wechat" ? "微信支付 V2" : provider === "alipay" ? "支付宝" : "兼容支付网关",
     sortOrder: provider === "wechat" ? 1 : provider === "alipay" ? 2 : 9,
     feeRateBps: 0,
     fixedFeeCents: 0,
     minAmountCents: 0,
     maxAmountCents: 0,
-    signType: "RSA2",
+    signType: provider === "wechat" ? "HMAC-SHA256" : "RSA2",
+    wechatApiVersion: provider === "wechat" ? "v2" : undefined,
+    queryUrl: provider === "wechat" ? "https://api.mch.weixin.qq.com/pay/orderquery" : undefined,
   };
 }
 
@@ -162,12 +170,18 @@ export async function loadPaymentConfig(provider?: PaymentProvider) {
   };
 }
 
+function validIpv4(value: string | undefined) {
+  if (!value) return false;
+  const parts = value.split(".");
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+}
+
 export function paymentConfigReady(config: PaymentConfig) {
   if (config.mode === "sandbox") return true;
   if (config.mode !== "production" || config.status !== "active" || !config.merchantId || !config.checkoutUrl) return false;
   if (config.provider === "wechat") return Boolean(
-    config.details.appId && config.details.merchantSerialNo && config.details.apiV3Key &&
-    config.details.merchantPrivateKey && config.details.platformPublicKeyId && config.details.platformPublicKey,
+    config.details.wechatApiVersion === "v2" && config.details.appId && config.details.apiV2Key &&
+    config.details.queryUrl && validIpv4(config.details.spbillCreateIp),
   );
   if (config.provider === "alipay") return Boolean(config.details.appPrivateKey && config.details.alipayPublicKey);
   return Boolean(config.details.callbackSecret);
