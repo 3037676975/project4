@@ -29,6 +29,18 @@ function defaults(provider: ChannelProvider) {
   if (provider === "alipay") return { checkoutUrl: "https://openapi.alipay.com/gateway.do", refundUrl: "https://openapi.alipay.com/gateway.do", queryUrl: "" };
   return { checkoutUrl: "", refundUrl: "", queryUrl: "" };
 }
+function validIpv4(value: string) {
+  const parts = value.split(".");
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+}
+function automaticWechatIp(existing = "") {
+  if (validIpv4(existing)) return existing;
+  try {
+    const hostname = new URL(getRuntime().APP_BASE_URL || "").hostname;
+    if (validIpv4(hostname)) return hostname;
+  } catch { /* noop */ }
+  return "";
+}
 function publicConfig(request: Request, config: PaymentConfig) {
   const details = config.details;
   return {
@@ -42,7 +54,6 @@ function publicConfig(request: Request, config: PaymentConfig) {
     callbackUrl: callbackUrl(request, config.provider as ChannelProvider), ready: paymentConfigReady(config),
     callbackSecretConfigured: Boolean(details.callbackSecret), apiV2KeyConfigured: Boolean(details.apiV2Key),
     appPrivateKeyConfigured: Boolean(details.appPrivateKey), alipayPublicKeyConfigured: Boolean(details.alipayPublicKey),
-    // Legacy fields stay in the response shape so an older cached admin UI does not crash.
     merchantSerialNo: "", platformPublicKeyId: "", apiV3KeyConfigured: false, merchantPrivateKeyConfigured: false, platformPublicKeyConfigured: false,
   };
 }
@@ -56,7 +67,11 @@ export async function GET(request: Request) {
         ...config,
         checkoutUrl: config.checkoutUrl || preset.checkoutUrl,
         refundUrl: config.refundUrl || preset.refundUrl,
-        details: { ...config.details, queryUrl: config.details.queryUrl || preset.queryUrl },
+        details: {
+          ...config.details,
+          queryUrl: config.details.queryUrl || preset.queryUrl,
+          spbillCreateIp: provider === "wechat" ? automaticWechatIp(config.details.spbillCreateIp || "") : config.details.spbillCreateIp,
+        },
       });
     }));
     const state = await paymentState();
@@ -72,10 +87,10 @@ export async function POST(request: Request) {
       const config = await loadPaymentConfig(provider);
       if (provider === "wechat") {
         const appId = text(config.details.appId, 160); const apiV2Key = text(config.details.apiV2Key, 200); const orderQueryUrl = text(config.details.queryUrl, 500) || defaults("wechat").queryUrl;
-        if (!appId || !config.merchantId || !apiV2Key || !orderQueryUrl) return Response.json({ error: "请先保存微信 V2 的 AppID、商户号、API V2 Key 和订单查询接口。" }, { status: 409 });
+        if (!appId || !config.merchantId || !apiV2Key) return Response.json({ error: "请先填写并保存 AppID、商户号和 API V2 Key。" }, { status: 409 });
         const probe = await probeWechatV2Config({ appId, merchantId: config.merchantId, apiV2Key, orderQueryUrl });
-        if (!probe.ok) return Response.json({ error: `微信 V2 配置未通过：${probe.message}`, code: probe.code }, { status: 409 });
-        return Response.json({ ok: true, code: probe.code, message: `${probe.message} 本次检查只查询随机不存在订单，不会产生真实扣款。` });
+        if (!probe.ok) return Response.json({ error: probe.message, code: probe.code }, { status: 409 });
+        return Response.json({ ok: true, code: probe.code, message: "微信支付配置正常。AppID、商户号、API V2 Key、签名和服务器网络均已验证通过。" });
       }
       if (!paymentConfigReady(config)) return Response.json({ error: "请先补齐该渠道的正式商户参数并保存。" }, { status: 409 });
       if (provider === "alipay") {
@@ -85,26 +100,30 @@ export async function POST(request: Request) {
     }
     if (action !== "save") return Response.json({ error: "不支持的支付配置操作。" }, { status: 400 });
     const current = await loadPaymentConfig(provider); const existing = current.details; const preset = defaults(provider);
-    const mode = body.mode === "sandbox" || body.mode === "production" ? body.mode : "disabled";
-    const merchantName = text(body.merchantName, 80); const merchantId = text(body.merchantId, 160);
-    const checkoutUrl = secureUrl(body.checkoutUrl || preset.checkoutUrl, mode === "production"); const refundUrl = secureUrl(body.refundUrl || preset.refundUrl);
+    const mode = provider === "wechat" ? "production" : (body.mode === "sandbox" || body.mode === "production" ? body.mode : "disabled");
+    const merchantName = provider === "wechat" ? "微信支付" : text(body.merchantName, 80);
+    const merchantId = text(body.merchantId, 160);
+    const checkoutUrl = provider === "wechat" ? preset.checkoutUrl : secureUrl(body.checkoutUrl || preset.checkoutUrl, mode === "production");
+    const refundUrl = provider === "wechat" ? "" : secureUrl(body.refundUrl || preset.refundUrl);
     const nextSecret = (key: keyof PaymentDetails, limit = 10000) => text(body[key], limit) || text(existing[key], limit);
-    const queryUrl = provider === "wechat" ? secureUrl(body.queryUrl || existing.queryUrl || preset.queryUrl, true) : "";
+    const queryUrl = provider === "wechat" ? preset.queryUrl : "";
     const details: PaymentDetails = {
-      displayName: text(body.displayName, 80) || existing.displayName || (provider === "wechat" ? "微信支付 V2" : provider === "alipay" ? "支付宝" : "兼容支付网关"),
-      sortOrder: number(body.sortOrder, 0, 999), feeRateBps: number(body.feeRateBps, 0, 10000), fixedFeeCents: number(body.fixedFeeCents),
-      minAmountCents: number(body.minAmountCents), maxAmountCents: number(body.maxAmountCents), callbackSecret: nextSecret("callbackSecret", 500),
+      displayName: provider === "wechat" ? "微信支付 V2" : text(body.displayName, 80) || existing.displayName || (provider === "alipay" ? "支付宝" : "兼容支付网关"),
+      sortOrder: provider === "wechat" ? 1 : number(body.sortOrder, 0, 999), feeRateBps: provider === "wechat" ? 0 : number(body.feeRateBps, 0, 10000),
+      fixedFeeCents: provider === "wechat" ? 0 : number(body.fixedFeeCents), minAmountCents: provider === "wechat" ? 0 : number(body.minAmountCents),
+      maxAmountCents: provider === "wechat" ? 0 : number(body.maxAmountCents), callbackSecret: provider === "wechat" ? undefined : nextSecret("callbackSecret", 500),
       appId: text(body.appId, 160) || existing.appId,
       apiV2Key: provider === "wechat" ? nextSecret("apiV2Key", 200) : undefined,
       queryUrl: provider === "wechat" ? queryUrl : undefined,
-      spbillCreateIp: provider === "wechat" ? (text(body.spbillCreateIp, 64) || existing.spbillCreateIp || "") : undefined,
+      spbillCreateIp: provider === "wechat" ? automaticWechatIp(existing.spbillCreateIp || "") : undefined,
       wechatApiVersion: provider === "wechat" ? "v2" : undefined,
       signType: provider === "wechat" ? "HMAC-SHA256" : "RSA2",
-      appPrivateKey: nextSecret("appPrivateKey"), alipayPublicKey: nextSecret("alipayPublicKey"),
-      returnUrl: text(body.returnUrl, 500) ? secureUrl(body.returnUrl) : existing.returnUrl || "",
+      appPrivateKey: provider === "wechat" ? undefined : nextSecret("appPrivateKey"),
+      alipayPublicKey: provider === "wechat" ? undefined : nextSecret("alipayPublicKey"),
+      returnUrl: provider === "wechat" ? undefined : (text(body.returnUrl, 500) ? secureUrl(body.returnUrl) : existing.returnUrl || ""),
     };
     const candidate: PaymentConfig = { mode, provider, merchantName, merchantId, checkoutUrl, refundUrl, details, source: "database", status: "active", secretHint: current.secretHint, updatedAt: current.updatedAt };
-    if (mode === "production" && !paymentConfigReady(candidate)) return Response.json({ error: provider === "wechat" ? "微信 V2 正式收款需填写 AppID、商户号、API V2 Key、服务器 IPv4、unifiedorder 下单接口和 orderquery 查询接口。" : provider === "alipay" ? "支付宝正式收款需填写 AppID、应用私钥和支付宝公钥。" : "正式收款需填写商户号、HTTPS 下单地址和回调签名密钥。" }, { status: 400 });
+    if (mode === "production" && !paymentConfigReady(candidate)) return Response.json({ error: provider === "wechat" ? "只需要填写 AppID、商户号和 API V2 Key；服务器 IPv4 会自动读取当前部署地址。" : provider === "alipay" ? "支付宝正式收款需填写 AppID、应用私钥和支付宝公钥。" : "正式收款需填写商户号、HTTPS 下单地址和回调签名密钥。" }, { status: 400 });
     if (!runtime.CONFIG_ENCRYPTION_KEY) return Response.json({ error: "缺少 CONFIG_ENCRYPTION_KEY，不能保存支付密钥。" }, { status: 503 });
     const encrypted = await encryptSecret(JSON.stringify(details), runtime.CONFIG_ENCRYPTION_KEY); const now = new Date().toISOString();
     const secretCount = [details.callbackSecret, details.apiV2Key, details.appPrivateKey, details.alipayPublicKey].filter(Boolean).length;
@@ -120,6 +139,6 @@ export async function POST(request: Request) {
       .bind(provider, mode, provider, merchantName, merchantId, checkoutUrl, refundUrl, encrypted.ciphertext, encrypted.iv, hint, admin.id, now, now).run();
     await writePlatformAudit(admin, "payment.channel.updated", "payment_config", provider, { mode, provider, merchantName, merchantIdHint: merchantId ? `${merchantId.slice(0, 4)}…` : "", secretCount, checkoutConfigured: Boolean(checkoutUrl), refundConfigured: Boolean(refundUrl), wechatApiVersion: provider === "wechat" ? "v2" : undefined });
     const saved = await loadPaymentConfig(provider); const state = await paymentState();
-    return Response.json({ saved: true, ready: state.ready, config: publicConfig(request, saved), message: paymentConfigReady(saved) ? `${saved.details.displayName || provider} 已保存并可用于收款。` : "渠道配置已保存，当前未启用正式收款。" });
+    return Response.json({ saved: true, ready: state.ready, config: publicConfig(request, saved), message: provider === "wechat" ? "微信支付 V2 配置已保存。现在可以点击“检测是否连通”。" : paymentConfigReady(saved) ? `${saved.details.displayName || provider} 已保存并可用于收款。` : "渠道配置已保存，当前未启用正式收款。" });
   } catch (error) { return platformRouteError(error); }
 }
