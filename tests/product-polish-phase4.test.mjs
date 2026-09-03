@@ -29,7 +29,16 @@ test('homepage presents a real customer-service product instead of a demo landin
   assert.match(page, /support-agent\.svg/);
   assert.match(page, /visitor-avatar\.svg/);
   assert.match(page, /ai-orb\.svg/);
-  assert.doesNotMatch(page, /客户案例.*某某|已有\s*10000|99\.9%\s*客户/);
+  assert.match(page, /homepage\.module\.css/);
+  assert.doesNotMatch(page, /className="kf-|客户案例.*某某|已有\s*10000|99\.9%\s*客户/);
+});
+
+test('homepage styles are isolated from legacy global kf selectors and responsive', () => {
+  const css = read('app/homepage.module.css');
+  for (const selector of ['.heroCopy', '.productShell', '.serviceDesk', '.miniWidget', '.traceCard', '@media (max-width: 760px)']) assert.ok(css.includes(selector), `missing ${selector}`);
+  assert.match(css, /width:\s*min\(920px, 100%\)/);
+  assert.match(css, /grid-template-columns:\s*240px minmax\(0, 1fr\) 230px/);
+  assert.doesNotMatch(css, /\.kf-/);
 });
 
 test('slider has a branded verification surface while retaining server verification', () => {
@@ -39,7 +48,7 @@ test('slider has a branded verification surface while retaining server verificat
   assert.match(slider, /verify\(Number\(event\.currentTarget\.value\)\)/);
 });
 
-test('phase4 visual system styles homepage, widget, and slider', () => {
+test('phase4 visual system still styles widget and slider', () => {
   const css = read('app/globals.css');
-  for (const selector of ['.kf-inbox-preview', '.kf-mini-widget', '.kf-trace-demo', '.widget-modebar', '.auth-slider-caption']) assert.ok(css.includes(selector), `missing ${selector}`);
+  for (const selector of ['.widget-modebar', '.auth-slider-caption']) assert.ok(css.includes(selector), `missing ${selector}`);
 });
