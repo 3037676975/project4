@@ -36,7 +36,7 @@ export function portalDestination(access: AccountAccess, portal: LoginPortal) {
   if (portal === "auto") return access.destination === "/login" ? null : access.destination;
   if (portal === "platform") return access.platformRole === "super_admin" ? "/platform" as const : null;
   if (portal === "admin") return access.platformRole ? "/admin" as const : null;
-  return access.tenantCount > 0 ? "/workspace" as const : null;
+  return access.tenantCount > 0 || access.platformRole === "super_admin" ? "/workspace" as const : null;
 }
 
 function base64UrlToBytes(value: string) {

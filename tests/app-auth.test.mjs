@@ -27,7 +27,7 @@ test("the hosted password cost stays within the Cloudflare Workers PBKDF2 ceilin
 });
 
 test("role-specific login portals never broaden account access", () => {
-  const superAdmin = { platformRole: "super_admin", tenantCount: 1, destination: "/platform" };
+  const superAdmin = { platformRole: "super_admin", tenantCount: 0, destination: "/platform" };
   assert.equal(portalDestination(superAdmin, "platform"), "/platform");
   assert.equal(portalDestination(superAdmin, "admin"), "/admin");
   assert.equal(portalDestination(superAdmin, "workspace"), "/workspace");

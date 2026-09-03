@@ -11,7 +11,6 @@ export type TenantContext = {
   email: string;
   displayName: string;
   role: "owner" | "admin" | "member" | "viewer";
-  platformPreview?: boolean;
 };
 
 const PLAN_SEEDS = [
@@ -79,18 +78,6 @@ export async function getOrCreateTenant(request: Request): Promise<TenantContext
       .bind(identity.accountId, new Date().toISOString(), existing.member_id).run();
     await seedLocalProviders(existing.tenant_id);
     return { tenantId: existing.tenant_id, memberId: existing.member_id, accountId: identity.accountId, tenantName: existing.tenant_name, email: identity.email, displayName: existing.display_name || identity.displayName, role: existing.role };
-  }
-  if (requestedTenantId) {
-    const [platformAdmin, tenant] = await Promise.all([
-      runtime.DB.prepare("SELECT id FROM platform_admins WHERE (account_id = ? OR email = ?) AND role = 'super_admin' AND status = 'active' LIMIT 1")
-        .bind(identity.accountId, identity.email).first<{ id: string }>(),
-      runtime.DB.prepare("SELECT id, name FROM tenants WHERE id = ? AND status = 'active' LIMIT 1")
-        .bind(requestedTenantId).first<{ id: string; name: string }>(),
-    ]);
-    if (platformAdmin && tenant) {
-      return { tenantId: tenant.id, memberId: `platform-preview:${platformAdmin.id}`, accountId: identity.accountId, tenantName: tenant.name,
-        email: identity.email, displayName: identity.displayName, role: "viewer", platformPreview: true };
-    }
   }
   if (requestedTenantId) throw Object.assign(new Error("您无权访问所选企业工作区，或成员账号已被禁用。"), { status: 403 });
   throw Object.assign(new Error("当前账号尚未加入企业工作区，请注册企业或让企业管理员创建成员账号。"), { status: 403 });

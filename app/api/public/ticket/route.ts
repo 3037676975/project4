@@ -33,6 +33,19 @@ export async function POST(request: Request) {
 
     const nowDate = new Date();
     const now = nowDate.toISOString();
+    if (validConversation) {
+      const existingTicket = await DB.prepare(`SELECT id FROM support_tickets
+        WHERE tenant_id = ? AND conversation_id = ? AND status IN ('open', 'processing') ORDER BY created_at DESC LIMIT 1`)
+        .bind(assistant.tenantId, validConversation.id).first<{ id: string }>();
+      if (existingTicket) {
+        const email = isEmailAddress(contact) ? contact.toLowerCase() : "";
+        await DB.prepare(`UPDATE customer_conversations SET status = 'handoff', mode = 'human',
+          visitor_email = CASE WHEN ? <> '' THEN ? ELSE visitor_email END, last_visitor_seen_at = ?, updated_at = ?
+          WHERE id = ? AND tenant_id = ?`)
+          .bind(email, email, now, now, validConversation.id, assistant.tenantId).run();
+        return Response.json({ saved: true, existing: true, ticketId: existingTicket.id, message: `人工工单 ${existingTicket.id.slice(-8)} 正在处理中。` });
+      }
+    }
     const ticketId = `ticket_${crypto.randomUUID().replaceAll("-", "")}`;
     const slaDueAt = new Date(nowDate.getTime() + 4 * 3600000).toISOString();
     const statements = [
