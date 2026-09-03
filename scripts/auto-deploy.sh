@@ -43,18 +43,26 @@ echo "[Project4] 当前版本: $COMMIT"
 
 echo "[Project4] 开始重新构建 Docker 服务"
 
-# 强制重新构建前端服务，避免 Docker cache 导致页面不更新
 docker compose --env-file "$PROJECT_DIR/.env.private" -f "$PROJECT_DIR/docker-compose.private.yml" build knowflow
 
 docker compose --env-file "$PROJECT_DIR/.env.private" -f "$PROJECT_DIR/docker-compose.private.yml" up -d --force-recreate
 
-sleep 5
+echo "[Project4] 等待 KnowFlow 服务启动"
+HEALTH_OK=0
+for i in {1..30}; do
+  if curl -fsS http://127.0.0.1:3000 >/dev/null; then
+    HEALTH_OK=1
+    echo "[Project4] 健康检查通过 (${i}/30)"
+    break
+  fi
 
-if curl -fsS http://127.0.0.1:3000 >/dev/null; then
-  echo "[Project4] 健康检查通过"
-else
+  echo "[Project4] 服务启动等待 ${i}/30"
+  sleep 3
+done
+
+if [[ "$HEALTH_OK" != "1" ]]; then
   echo "[Project4] 健康检查失败"
-  docker compose --env-file "$PROJECT_DIR/.env.private" -f "$PROJECT_DIR/docker-compose.private.yml" logs --tail=80 knowflow || true
+  docker compose --env-file "$PROJECT_DIR/.env.private" -f "$PROJECT_DIR/docker-compose.private.yml" logs --tail=100 knowflow || true
   exit 1
 fi
 
