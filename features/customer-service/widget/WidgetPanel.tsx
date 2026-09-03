@@ -2,14 +2,14 @@
 
 import React, { useState } from "react";
 import { sendWidgetMessage } from "./WidgetApi";
+import type { WidgetSettings } from "./WidgetSettings";
 
-const presets = ["了解套餐", "预约演示", "技术支持", "联系客服"];
 const visitorId = `visitor_${Date.now()}`;
 
-export function WidgetPanel({ open }: { open: boolean }) {
+export function WidgetPanel({ open, settings }: { open: boolean; settings?: WidgetSettings }) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([
-    { role: "ai", text: "你好，我是 KnowFlow AI 客服，可以帮助你了解产品。" },
+    { role: "ai", text: settings?.welcomeMessage || "你好，我是 KnowFlow AI 客服，可以帮助你了解产品。" },
   ]);
   const [loading, setLoading] = useState(false);
 
@@ -24,7 +24,7 @@ export function WidgetPanel({ open }: { open: boolean }) {
       const result = await sendWidgetMessage({
         question: text,
         visitorId,
-        mode: "ai",
+        mode: settings?.mode || "ai",
       });
 
       setMessages((items) => [
@@ -32,20 +32,19 @@ export function WidgetPanel({ open }: { open: boolean }) {
         { role: "ai", text: result.answer || result.message || "暂无回复，请稍后再试。" },
       ]);
     } catch {
-      setMessages((items) => [
-        ...items,
-        { role: "ai", text: "客服连接失败，请稍后重试。" },
-      ]);
+      setMessages((items) => [...items, { role: "ai", text: "客服连接失败，请稍后重试。" }]);
     } finally {
       setLoading(false);
     }
   }
 
-  if (!open) return null;
+  if (!open || settings?.enabled === false) return null;
 
   return (
     <section className="project4-widget-panel" aria-label="AI customer service panel">
-      <header className="project4-widget-header">KnowFlow AI 客服</header>
+      <header className="project4-widget-header">
+        {settings?.title || "KnowFlow AI 客服"}
+      </header>
       <div className="project4-widget-body">
         {messages.map((item, index) => (
           <p key={index}>
@@ -55,7 +54,7 @@ export function WidgetPanel({ open }: { open: boolean }) {
         {loading && <p>AI 正在思考...</p>}
       </div>
       <div>
-        {presets.map((item) => (
+        {(settings?.quickQuestions || ["了解套餐", "预约演示", "技术支持", "联系客服"]).map((item) => (
           <button key={item} onClick={() => send(item)}>{item}</button>
         ))}
       </div>
