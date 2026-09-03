@@ -1,0 +1,79 @@
+{
+  "reference": "knowflow-editorial-homepage.png",
+  "targetViewport": "1536x960 desktop first viewport",
+  "strategy": "hybrid image-first",
+  "regions": [
+    {
+      "id": "site-header",
+      "region": "header",
+      "kind": "container",
+      "representation": "layout-html",
+      "visualNotes": "Warm ivory canvas, black KnowFlow wordmark, restrained commercial navigation and account actions.",
+      "required": true
+    },
+    {
+      "id": "hero-headline",
+      "region": "hero",
+      "kind": "text",
+      "representation": "native-text",
+      "visualNotes": "Oversized near-black Chinese headline with very tight tracking and two-line editorial composition.",
+      "required": true
+    },
+    {
+      "id": "hero-support-copy",
+      "region": "hero",
+      "kind": "text",
+      "representation": "native-text",
+      "visualNotes": "Short commercial explanation and two conversion actions, visually secondary to the headline.",
+      "required": true
+    },
+    {
+      "id": "hero-product-dashboard",
+      "region": "hero",
+      "kind": "dashboard-card",
+      "representation": "complete-card-image",
+      "visualNotes": "One intact dark product dashboard containing the vertical rail, customer question, document sources, grounded answer, lead card, four operating metrics and trend chart.",
+      "required": true
+    },
+    {
+      "id": "hero-proof-strip",
+      "region": "hero-footer",
+      "kind": "container",
+      "representation": "layout-html",
+      "visualNotes": "Three large proof statements separated by precise one-pixel borders.",
+      "required": true
+    },
+    {
+      "id": "section-headings",
+      "region": "below-fold",
+      "kind": "text",
+      "representation": "native-text",
+      "visualNotes": "Large editorial headings extending the selected reference typography through the existing product story.",
+      "required": true
+    },
+    {
+      "id": "business-capability-modules",
+      "region": "below-fold",
+      "kind": "card",
+      "representation": "layout-html",
+      "visualNotes": "Existing product capabilities retained as low-radius bordered editorial modules with native readable content.",
+      "required": true
+    },
+    {
+      "id": "role-dashboard-modules",
+      "region": "below-fold",
+      "kind": "card",
+      "representation": "layout-html",
+      "visualNotes": "Existing three-console explanation retained with compact code-native diagrams for accurate Chinese labels.",
+      "required": true
+    },
+    {
+      "id": "deployment-terminal",
+      "region": "below-fold",
+      "kind": "complete-card-image",
+      "representation": "layout-html",
+      "visualNotes": "Existing terminal recreated as a simple code-native block because it contains critical editable deployment text.",
+      "required": true
+    }
+  ]
+}
