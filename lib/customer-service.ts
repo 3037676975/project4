@@ -1,6 +1,6 @@
 import { PublicApiError } from "./api-keys";
 import { getRuntime } from "./runtime";
-import { constantTimeEqual, randomToken, sha256 } from "./security";
+import { clientIp, constantTimeEqual, randomToken, sha256 } from "./security";
 
 export type FaqCandidate = { id: string; question: string; answer: string; keywords_json?: string; priority?: number };
 export type FaqMatch = { id: string; question: string; answer: string; score: number };
@@ -62,4 +62,36 @@ export async function conversationTokenMatches(token: string, expectedHash: stri
 
 export async function requireConversationToken(token: string, expectedHash: string | null | undefined) {
   if (!await conversationTokenMatches(token, expectedHash)) throw new PublicApiError(403, "会话凭据无效，请刷新客服窗口后重试。", "conversation_access_denied");
+}
+
+export function isEmailAddress(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim().toLowerCase());
+}
+
+export function maskVisitorIp(value: string) {
+  const ip = value.trim();
+  if (!ip || ip === "unknown") return "";
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip)) {
+    const parts = ip.split("."); return `${parts[0]}.${parts[1]}.${parts[2]}.*`;
+  }
+  if (ip.includes(":")) return `${ip.split(":").filter(Boolean).slice(0, 4).join(":")}:*`;
+  return "";
+}
+
+function cleanHeader(request: Request, names: string[], max = 500) {
+  for (const name of names) { const value = request.headers.get(name)?.trim(); if (value) return value.slice(0, max); }
+  return "";
+}
+
+export function visitorMetadata(request: Request) {
+  const referer = cleanHeader(request, ["referer"], 500);
+  return {
+    maskedIp: maskVisitorIp(clientIp(request)),
+    country: cleanHeader(request, ["cf-ipcountry", "x-vercel-ip-country", "x-country-code"], 12).toUpperCase(),
+    region: cleanHeader(request, ["x-vercel-ip-country-region", "cf-region", "x-region"], 80),
+    city: cleanHeader(request, ["x-vercel-ip-city", "cf-ipcity", "x-city"], 120),
+    referer,
+    userAgent: cleanHeader(request, ["user-agent"], 500),
+    seenAt: new Date().toISOString(),
+  };
 }

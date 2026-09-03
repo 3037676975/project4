@@ -1,6 +1,6 @@
 import { PublicApiError } from "../../../../lib/api-keys";
 import { completeOnce, parseMessages, prepareCompletion } from "../../../../lib/completion";
-import { findFaqMatch, issueConversationToken, requireConversationToken } from "../../../../lib/customer-service";
+import { findFaqMatch, issueConversationToken, requireConversationToken, visitorMetadata } from "../../../../lib/customer-service";
 import { enforceWidgetQuota, enforceWidgetRateLimit, loadPublicWidgetAssistant, publicWidgetError, verifyEmbedToken } from "../../../../lib/public-widget";
 import { getRuntime } from "../../../../lib/runtime";
 import { sha256 } from "../../../../lib/security";
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     await verifyEmbedToken(assistant, typeof payload.embedToken === "string" ? payload.embedToken : "");
     await enforceWidgetRateLimit(request, assistant, visitorId);
     if (requestedMode === "human" && !assistant.handoffEnabled) throw new PublicApiError(403, "当前套餐未开通人工客服接管。");
-    const { DB } = getRuntime();
+    const { DB } = getRuntime(); const visitor = visitorMetadata(request);
 
     const existing = requestedConversationId ? await DB.prepare(`SELECT id, message_count, access_token_hash, mode FROM customer_conversations
       WHERE id = ? AND tenant_id = ? AND assistant_id = ? AND visitor_id = ? LIMIT 1`)
@@ -38,26 +38,37 @@ export async function POST(request: Request) {
     const issued = existing?.access_token_hash ? null : await issueConversationToken();
     if (existing?.access_token_hash) await requireConversationToken(conversationToken, existing.access_token_hash);
     if (existing && issued) await DB.prepare("UPDATE customer_conversations SET access_token_hash = ?, updated_at = ? WHERE id = ? AND tenant_id = ?")
-      .bind(issued.hash, new Date().toISOString(), existing.id, assistant.tenantId).run();
+      .bind(issued.hash, visitor.seenAt, existing.id, assistant.tenantId).run();
     const responseToken = issued?.token || conversationToken;
 
     const conversationId = existing?.id || `conv_${crypto.randomUUID().replaceAll("-", "")}`;
     const visitorIdHash = await sha256(`${assistant.publicId}|${visitorId}`);
     const historyRows = existing && requestedMode === "ai" ? await DB.prepare(`SELECT role, content FROM customer_messages
-      WHERE tenant_id = ? AND conversation_id = ? AND role IN ('user','assistant') ORDER BY created_at DESC LIMIT 10`)
+      WHERE tenant_id = ? AND conversation_id = ? AND role IN ('user','assistant') AND message_type = 'text' ORDER BY created_at DESC LIMIT 10`)
       .bind(assistant.tenantId, conversationId).all<Record<string, unknown>>() : { results: [] };
     const history = (historyRows.results as Array<Record<string, unknown>>).reverse().map((row) => ({ role: row.role === "assistant" ? "assistant" as const : "user" as const, content: String(row.content) }));
-    const now = new Date().toISOString();
+    const now = visitor.seenAt;
     const statements = [DB.prepare(`INSERT INTO customer_messages
-      (id, tenant_id, conversation_id, role, content, source_count, created_at) VALUES (?, ?, ?, 'user', ?, 0, ?)`)
+      (id, tenant_id, conversation_id, role, content, source_count, message_type, created_at) VALUES (?, ?, ?, 'user', ?, 0, 'text', ?)`)
       .bind(`msg_${crypto.randomUUID().replaceAll("-", "")}`, assistant.tenantId, conversationId, question, now)];
     if (existing) statements.push(DB.prepare(`UPDATE customer_conversations SET last_question = ?, message_count = message_count + 1,
-      mode = ?, status = ?, last_message_at = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`)
-      .bind(question, requestedMode, requestedMode === "human" ? "handoff" : "open", now, now, conversationId, assistant.tenantId));
+      mode = ?, status = ?, last_message_at = ?, last_visitor_seen_at = ?,
+      visitor_ip_masked = CASE WHEN visitor_ip_masked IS NULL OR visitor_ip_masked = '' THEN ? ELSE visitor_ip_masked END,
+      visitor_country = CASE WHEN visitor_country IS NULL OR visitor_country = '' THEN ? ELSE visitor_country END,
+      visitor_region = CASE WHEN visitor_region IS NULL OR visitor_region = '' THEN ? ELSE visitor_region END,
+      visitor_city = CASE WHEN visitor_city IS NULL OR visitor_city = '' THEN ? ELSE visitor_city END,
+      visitor_referer = CASE WHEN ? <> '' THEN ? ELSE visitor_referer END,
+      visitor_user_agent = CASE WHEN ? <> '' THEN ? ELSE visitor_user_agent END, updated_at = ? WHERE id = ? AND tenant_id = ?`)
+      .bind(question, requestedMode, requestedMode === "human" ? "handoff" : "open", now, now,
+        visitor.maskedIp, visitor.country, visitor.region, visitor.city, visitor.referer, visitor.referer, visitor.userAgent, visitor.userAgent,
+        now, conversationId, assistant.tenantId));
     else statements.push(DB.prepare(`INSERT INTO customer_conversations
-      (id, tenant_id, assistant_id, visitor_id, visitor_id_hash, channel, access_token_hash, mode, status, first_question, last_question, message_count, source_hit_count, ai_resolved, started_at, last_message_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'web_widget', ?, ?, ?, ?, ?, 1, 0, 0, ?, ?, ?)`)
-      .bind(conversationId, assistant.tenantId, assistant.id, visitorId, visitorIdHash, issued!.hash, requestedMode, requestedMode === "human" ? "handoff" : "open", question, question, now, now, now));
+      (id, tenant_id, assistant_id, visitor_id, visitor_id_hash, channel, access_token_hash, mode, status,
+       visitor_ip_masked, visitor_country, visitor_region, visitor_city, visitor_referer, visitor_user_agent, last_visitor_seen_at,
+       first_question, last_question, message_count, source_hit_count, ai_resolved, started_at, last_message_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'web_widget', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, ?, ?, ?)`)
+      .bind(conversationId, assistant.tenantId, assistant.id, visitorId, visitorIdHash, issued!.hash, requestedMode, requestedMode === "human" ? "handoff" : "open",
+        visitor.maskedIp, visitor.country, visitor.region, visitor.city, visitor.referer, visitor.userAgent, now, question, question, now, now, now));
     await DB.batch(statements);
 
     if (requestedMode === "human") {
@@ -70,7 +81,7 @@ export async function POST(request: Request) {
       const handoffMessage = "已转人工客服。您的消息已经进入客服工作台，人工回复会直接显示在当前窗口。";
       const messageId = `msg_${crypto.randomUUID().replaceAll("-", "")}`;
       await DB.batch([
-        DB.prepare("INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, source_count, created_at) VALUES (?, ?, ?, 'assistant', ?, 0, ?)")
+        DB.prepare("INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, source_count, message_type, created_at) VALUES (?, ?, ?, 'assistant', ?, 0, 'text', ?)")
           .bind(messageId, assistant.tenantId, conversationId, handoffMessage, new Date().toISOString()),
         DB.prepare("UPDATE customer_conversations SET mode = 'human', status = 'handoff', message_count = message_count + 1, updated_at = ? WHERE id = ? AND tenant_id = ?")
           .bind(new Date().toISOString(), conversationId, assistant.tenantId),
@@ -82,8 +93,8 @@ export async function POST(request: Request) {
     if (faq) {
       const finishedAt = new Date().toISOString(); const messageId = `msg_${crypto.randomUUID().replaceAll("-", "")}`;
       await DB.batch([
-        DB.prepare(`INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, source_count, created_at)
-          VALUES (?, ?, ?, 'assistant', ?, 1, ?)`)
+        DB.prepare(`INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, source_count, message_type, created_at)
+          VALUES (?, ?, ?, 'assistant', ?, 1, 'text', ?)`)
           .bind(messageId, assistant.tenantId, conversationId, faq.answer, finishedAt),
         DB.prepare(`UPDATE customer_conversations SET status = 'resolved', mode = 'ai', message_count = message_count + 1,
           source_hit_count = source_hit_count + 1, ai_resolved = 1, quality_score_milli = ?, last_message_at = ?, updated_at = ?
@@ -97,8 +108,8 @@ export async function POST(request: Request) {
     const result = await completeOnce(prepared, 700);
     const resolved = result.grounded; const finishedAt = new Date().toISOString(); const answerMessageId = `msg_${crypto.randomUUID().replaceAll("-", "")}`;
     await DB.batch([
-      DB.prepare(`INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, trace_id, source_count, created_at)
-        VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)`)
+      DB.prepare(`INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, trace_id, source_count, message_type, created_at)
+        VALUES (?, ?, ?, 'assistant', ?, ?, ?, 'text', ?)`)
         .bind(answerMessageId, assistant.tenantId, conversationId, result.answer, result.traceId, prepared.sources.length, finishedAt),
       DB.prepare(`UPDATE customer_conversations SET status = ?, mode = 'ai', message_count = message_count + 1,
         source_hit_count = source_hit_count + ?, ai_resolved = ?, quality_score_milli = ?, last_message_at = ?, updated_at = ?

@@ -135,7 +135,7 @@ export async function verifyEmbedToken(assistant: PublicWidgetAssistant, token: 
   }
 }
 
-export async function recordPrivacyConsent(input: { request: Request; assistant: PublicWidgetAssistant; visitorId: string; purpose: "lead" | "ticket"; granted: boolean }) {
+export async function recordPrivacyConsent(input: { request: Request; assistant: PublicWidgetAssistant; visitorId: string; purpose: "lead" | "ticket" | "offline_followup"; granted: boolean }) {
   if (!input.granted) throw new PublicApiError(400, "提交前请阅读并同意隐私告知。");
   const ipHash = await sha256(`${input.assistant.publicId}|${clientIp(input.request)}`);
   const visitorHash = await sha256(`${input.assistant.publicId}|${input.visitorId}`);

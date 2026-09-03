@@ -268,6 +268,9 @@ export const customerConversations = sqliteTable("customer_conversations", {
   id: text("id").primaryKey(), tenantId: text("tenant_id").notNull(), assistantId: text("assistant_id").notNull(),
   visitorId: text("visitor_id").notNull(), visitorIdHash: text("visitor_id_hash"), channel: text("channel").notNull().default("web_widget"),
   accessTokenHash: text("access_token_hash"), mode: text("mode").notNull().default("ai"), assignedMemberId: text("assigned_member_id"),
+  visitorIpMasked: text("visitor_ip_masked"), visitorCountry: text("visitor_country"), visitorRegion: text("visitor_region"), visitorCity: text("visitor_city"),
+  visitorReferer: text("visitor_referer"), visitorUserAgent: text("visitor_user_agent"), visitorEmail: text("visitor_email"),
+  lastVisitorSeenAt: text("last_visitor_seen_at"), offlineEmailSentAt: text("offline_email_sent_at"),
   status: text("status").notNull().default("open"), firstQuestion: text("first_question").notNull().default(""),
   lastQuestion: text("last_question").notNull().default(""), messageCount: integer("message_count").notNull().default(0),
   sourceHitCount: integer("source_hit_count").notNull().default(0), aiResolved: integer("ai_resolved", { mode: "boolean" }).notNull().default(false),
@@ -294,7 +297,8 @@ export const customerMessages = sqliteTable("customer_messages", {
   id: text("id").primaryKey(), tenantId: text("tenant_id").notNull(), conversationId: text("conversation_id").notNull(),
   role: text("role").notNull(), content: text("content").notNull(), traceId: text("trace_id"),
   sourceCount: integer("source_count").notNull().default(0), feedback: text("feedback"), feedbackReason: text("feedback_reason"),
-  createdAt: text("created_at").notNull(),
+  messageType: text("message_type").notNull().default("text"), attachmentName: text("attachment_name"), attachmentMime: text("attachment_mime"),
+  attachmentSize: integer("attachment_size"), attachmentKey: text("attachment_key"), createdAt: text("created_at").notNull(),
 }, (table) => [index("customer_messages_conversation_idx").on(table.tenantId, table.conversationId, table.createdAt)]);
 
 export const customerLeads = sqliteTable("customer_leads", {

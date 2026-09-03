@@ -1,5 +1,5 @@
 import { PublicApiError } from "../../../../lib/api-keys";
-import { requireConversationToken } from "../../../../lib/customer-service";
+import { requireConversationToken, visitorMetadata } from "../../../../lib/customer-service";
 import { loadPublicWidgetAssistant, publicWidgetError, verifyEmbedToken } from "../../../../lib/public-widget";
 import { getRuntime } from "../../../../lib/runtime";
 
@@ -21,9 +21,22 @@ export async function POST(request: Request) {
       .bind(conversationId, assistant.tenantId, assistant.id, visitorId).first<{ id: string; access_token_hash: string | null; mode: string; status: string; assigned_member_id: string | null }>();
     if (!conversation) throw new PublicApiError(404, "会话不存在或已失效。");
     await requireConversationToken(token, conversation.access_token_hash);
-    const messages = await DB.prepare(`SELECT id, role, content, created_at FROM customer_messages
-      WHERE tenant_id = ? AND conversation_id = ? AND role = 'agent' ORDER BY created_at ASC LIMIT 120`)
+    const visitor = visitorMetadata(request);
+    await DB.prepare(`UPDATE customer_conversations SET last_visitor_seen_at = ?,
+      visitor_ip_masked = CASE WHEN visitor_ip_masked IS NULL OR visitor_ip_masked = '' THEN ? ELSE visitor_ip_masked END,
+      visitor_country = CASE WHEN visitor_country IS NULL OR visitor_country = '' THEN ? ELSE visitor_country END,
+      visitor_region = CASE WHEN visitor_region IS NULL OR visitor_region = '' THEN ? ELSE visitor_region END,
+      visitor_city = CASE WHEN visitor_city IS NULL OR visitor_city = '' THEN ? ELSE visitor_city END,
+      visitor_referer = CASE WHEN ? <> '' THEN ? ELSE visitor_referer END,
+      visitor_user_agent = CASE WHEN ? <> '' THEN ? ELSE visitor_user_agent END, updated_at = ? WHERE id = ? AND tenant_id = ?`)
+      .bind(visitor.seenAt, visitor.maskedIp, visitor.country, visitor.region, visitor.city, visitor.referer, visitor.referer,
+        visitor.userAgent, visitor.userAgent, visitor.seenAt, conversationId, assistant.tenantId).run();
+    const messages = await DB.prepare(`SELECT id, role, content, message_type, attachment_name, attachment_mime, attachment_size, created_at FROM customer_messages
+      WHERE tenant_id = ? AND conversation_id = ? AND role = 'agent' ORDER BY created_at ASC LIMIT 160`)
       .bind(assistant.tenantId, conversationId).all<Record<string, unknown>>();
-    return Response.json({ conversationId, mode: conversation.mode, status: conversation.status, assigned: Boolean(conversation.assigned_member_id), messages: messages.results.map((row) => ({ id: row.id, role: row.role, content: row.content, createdAt: row.created_at })) });
+    return Response.json({ conversationId, mode: conversation.mode, status: conversation.status, assigned: Boolean(conversation.assigned_member_id), messages: messages.results.map((row) => ({
+      id: row.id, role: row.role, content: row.content, messageType: row.message_type || "text", attachmentName: row.attachment_name,
+      attachmentMime: row.attachment_mime, attachmentSize: row.attachment_size, createdAt: row.created_at,
+    })) });
   } catch (error) { return publicWidgetError(error); }
 }
