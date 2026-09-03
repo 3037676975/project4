@@ -1,6 +1,0 @@
-docling==2.120.3
-fastapi==0.116.1
-onnxruntime>=1.22,<2
-python-multipart==0.0.20
-rapidocr>=3.4,<4
-uvicorn[standard]==0.35.0

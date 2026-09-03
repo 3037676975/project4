@@ -1,1 +1,0 @@
-ALTER TABLE `customer_conversations` ADD `visitor_id_hash` text;
