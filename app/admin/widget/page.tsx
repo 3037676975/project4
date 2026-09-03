@@ -1,28 +1,61 @@
 import Link from "next/link";
 
-const items = [
-  ["Widget 状态", "开启 / 关闭网站 AI 客服入口", "🟢 在线"],
-  ["欢迎语配置", "设置访客首次打开时看到的内容", "你好，我是 KnowFlow AI 客服"],
-  ["快捷问题", "配置套餐、演示、技术支持等入口", "4 个快捷入口"],
-  ["AI / 人工模式", "控制自动回复与人工接管流程", "AI 优先"],
-] as const;
+const settings = [
+  {
+    title: "网站悬浮窗开关",
+    desc: "控制企业官网右下角 AI 客服入口是否展示",
+    value: "已开启",
+  },
+  {
+    title: "默认欢迎语",
+    desc: "访客第一次打开客服窗口时显示",
+    value: "你好，我是 KnowFlow AI 客服，有什么可以帮助你？",
+  },
+  {
+    title: "快捷问题预设",
+    desc: "减少访客输入成本，支持产品咨询、价格、技术支持",
+    value: "套餐咨询 / 产品演示 / 售后支持",
+  },
+  {
+    title: "智能接待模式",
+    desc: "支持 AI 自动回复与人工客服接管",
+    value: "AI 优先 + 人工兜底",
+  },
+];
 
 export default function WidgetAdminPage() {
   return (
-    <main style={{ minHeight: "100vh", padding: 40, background: "#f8fafc", color: "#111827" }}>
-      <Link href="/admin" style={{ color: "#4f46e5", textDecoration: "none" }}>← 返回管理后台</Link>
-      <h1 style={{ marginTop: 24, fontSize: 32 }}>AI 客服 Widget 配置</h1>
-      <p style={{ color: "#64748b" }}>管理企业网站右下角 AI 客服组件。</p>
-      <section style={{ marginTop: 32, display: "grid", gap: 16, maxWidth: 820 }}>
-        {items.map(([title, desc, value]) => (
-          <article key={title} style={{ padding: 24, borderRadius: 20, background: "white", border: "1px solid #e5e7eb", boxShadow:"0 8px 30px rgba(15,23,42,.04)" }}>
-            <h2 style={{ margin: 0, fontSize: 20 }}>{title}</h2>
-            <p style={{ color: "#64748b" }}>{desc}</p>
-            <div style={{ padding:12, borderRadius:12, background:"#f8fafc", marginBottom:16 }}>{value}</div>
-            <button style={{ padding: "10px 16px", borderRadius: 12, border: 0, background: "#4f46e5", color: "white" }}>配置</button>
-          </article>
-        ))}
-      </section>
+    <main style={{ minHeight: "100vh", padding: 40, background: "linear-gradient(135deg,#f8fafc,#eef2ff)", color: "#111827" }}>
+      <Link href="/admin" style={{ color: "#2563eb", textDecoration: "none" }}>
+        ← 返回超级管理员后台
+      </Link>
+
+      <div style={{ maxWidth: 1000, marginTop: 30 }}>
+        <h1 style={{ fontSize: 36, marginBottom: 8 }}>AI 客服悬浮窗配置中心</h1>
+        <p style={{ color: "#64748b" }}>参考 AI-CS 风格，集中管理官网 Widget 展示、预设问题和接待策略。</p>
+
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 20, marginTop: 30 }}>
+          {settings.map((item) => (
+            <article key={item.title} style={{ background: "white", borderRadius: 24, padding: 24, border: "1px solid #e2e8f0", boxShadow: "0 15px 35px rgba(15,23,42,.06)" }}>
+              <h2 style={{ fontSize: 20 }}>{item.title}</h2>
+              <p style={{ color: "#64748b", minHeight: 45 }}>{item.desc}</p>
+              <div style={{ background: "#f8fafc", borderRadius: 14, padding: 14, marginBottom: 16 }}>{item.value}</div>
+              <button style={{ width: "100%", padding: "12px", borderRadius: 14, border: 0, background: "#2563eb", color: "white", cursor: "pointer" }}>
+                编辑配置
+              </button>
+            </article>
+          ))}
+        </section>
+
+        <section style={{ marginTop: 30, background: "#111827", color: "white", borderRadius: 24, padding: 28 }}>
+          <h2>悬浮窗预览</h2>
+          <div style={{ marginTop: 20, background: "white", color: "#111827", borderRadius: 18, padding: 20, maxWidth: 360 }}>
+            <b>🤖 KnowFlow AI 客服</b>
+            <p>你好，需要了解产品还是技术方案？</p>
+            <button>价格咨询</button> <button>在线演示</button>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
