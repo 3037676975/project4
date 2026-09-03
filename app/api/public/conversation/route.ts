@@ -3,7 +3,7 @@ import { requireConversationToken, visitorMetadata } from "../../../../lib/custo
 import { loadPublicWidgetAssistant, publicWidgetError, verifyEmbedToken } from "../../../../lib/public-widget";
 import { getRuntime } from "../../../../lib/runtime";
 
-type SyncPayload = { publicId?: unknown; conversationId?: unknown; conversationToken?: unknown; visitorId?: unknown; embedToken?: unknown };
+type SyncPayload = { publicId?: unknown; conversationId?: unknown; conversationToken?: unknown; visitorId?: unknown; embedToken?: unknown; action?: unknown; mode?: unknown };
 
 export async function POST(request: Request) {
   try {
@@ -21,6 +21,25 @@ export async function POST(request: Request) {
       .bind(conversationId, assistant.tenantId, assistant.id, visitorId).first<{ id: string; access_token_hash: string | null; mode: string; status: string; assigned_member_id: string | null }>();
     if (!conversation) throw new PublicApiError(404, "会话不存在或已失效。");
     await requireConversationToken(token, conversation.access_token_hash);
+    const action = body.action === "switch_mode" ? "switch_mode" : "";
+    const nextMode = body.mode === "human" ? "human" : body.mode === "ai" ? "ai" : "";
+    if (action === "switch_mode") {
+      if (!nextMode) throw new PublicApiError(400, "客服模式无效。");
+      if (nextMode === "human" && !assistant.handoffEnabled) throw new PublicApiError(403, "当前套餐未开通人工客服接管。");
+      const changedAt = new Date().toISOString();
+      if (nextMode === "ai") {
+        await DB.batch([
+          DB.prepare("UPDATE customer_conversations SET mode = 'ai', status = 'open', assigned_member_id = NULL, updated_at = ? WHERE id = ? AND tenant_id = ?")
+            .bind(changedAt, conversationId, assistant.tenantId),
+          DB.prepare("UPDATE support_tickets SET status = 'resolved', resolved_at = COALESCE(resolved_at, ?), updated_at = ? WHERE tenant_id = ? AND conversation_id = ? AND status IN ('open','processing')")
+            .bind(changedAt, changedAt, assistant.tenantId, conversationId),
+        ]);
+        return Response.json({ conversationId, mode: "ai", status: "open", assigned: false, messages: [] });
+      }
+      await DB.prepare("UPDATE customer_conversations SET mode = 'human', status = 'handoff', updated_at = ? WHERE id = ? AND tenant_id = ?")
+        .bind(changedAt, conversationId, assistant.tenantId).run();
+      return Response.json({ conversationId, mode: "human", status: "handoff", assigned: Boolean(conversation.assigned_member_id), messages: [] });
+    }
     const visitor = visitorMetadata(request);
     await DB.prepare(`UPDATE customer_conversations SET last_visitor_seen_at = ?,
       visitor_ip_masked = CASE WHEN visitor_ip_masked IS NULL OR visitor_ip_masked = '' THEN ? ELSE visitor_ip_masked END,

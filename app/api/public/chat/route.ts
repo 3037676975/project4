@@ -78,15 +78,19 @@ export async function POST(request: Request) {
         (id, tenant_id, assistant_id, conversation_id, subject, visitor_id_hash, description, contact, priority, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, '', 'normal', 'open', ?, ?)`)
         .bind(`ticket_${crypto.randomUUID().replaceAll("-", "")}`, assistant.tenantId, assistant.id, conversationId, question.slice(0, 80), visitorIdHash, question, now, now).run();
-      const handoffMessage = "已转人工客服。您的消息已经进入客服工作台，人工回复会直接显示在当前窗口。";
-      const messageId = `msg_${crypto.randomUUID().replaceAll("-", "")}`;
-      await DB.batch([
-        DB.prepare("INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, source_count, message_type, created_at) VALUES (?, ?, ?, 'assistant', ?, 0, 'text', ?)")
-          .bind(messageId, assistant.tenantId, conversationId, handoffMessage, new Date().toISOString()),
-        DB.prepare("UPDATE customer_conversations SET mode = 'human', status = 'handoff', message_count = message_count + 1, updated_at = ? WHERE id = ? AND tenant_id = ?")
-          .bind(new Date().toISOString(), conversationId, assistant.tenantId),
-      ]);
-      return Response.json({ conversationId, conversationToken: responseToken, messageId, answer: handoffMessage, mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [] });
+      const firstHandoff = existing?.mode !== "human";
+      if (firstHandoff) {
+        const handoffMessage = "已进入人工接待。消息会直接进入客服工作台，您也可以随时恢复 AI 助手。";
+        const messageId = `msg_${crypto.randomUUID().replaceAll("-", "")}`;
+        await DB.batch([
+          DB.prepare("INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, source_count, message_type, created_at) VALUES (?, ?, ?, 'assistant', ?, 0, 'text', ?)")
+            .bind(messageId, assistant.tenantId, conversationId, handoffMessage, new Date().toISOString()),
+          DB.prepare("UPDATE customer_conversations SET mode = 'human', status = 'handoff', message_count = message_count + 1, updated_at = ? WHERE id = ? AND tenant_id = ?")
+            .bind(new Date().toISOString(), conversationId, assistant.tenantId),
+        ]);
+        return Response.json({ conversationId, conversationToken: responseToken, messageId, answer: handoffMessage, mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [] });
+      }
+      return Response.json({ conversationId, conversationToken: responseToken, messageId: "", answer: "", mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [] });
     }
 
     const faq = await findFaqMatch(assistant.tenantId, assistant.id, question);

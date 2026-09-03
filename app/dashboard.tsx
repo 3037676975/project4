@@ -80,6 +80,7 @@ export default function Dashboard({ user, isPlatformAdmin, initialTenantId, logo
   const [busy, setBusy] = useState<string | null>(null); const [toast, setToast] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [platformAccess, setPlatformAccess] = useState(isPlatformAdmin);
+  const [customerServiceBadge, setCustomerServiceBadge] = useState({ unread: 0, waiting: 0 });
   const [keyForm, setKeyForm] = useState({ name: "生产环境", rpmLimit: 60, tpmLimit: 100000, scopes: scopeOptions }); const [memberForm, setMemberForm] = useState({ displayName: "", email: "", temporaryPassword: "", role: "member" });
 
   useLayoutEffect(() => {
@@ -114,6 +115,12 @@ export default function Dashboard({ user, isPlatformAdmin, initialTenantId, logo
     return () => window.clearTimeout(timer);
   }, [loadAll]);
   useEffect(() => { const timer = window.setTimeout(() => { void api<{ allowed: boolean }>("/api/platform/access").then((result) => setPlatformAccess(result.allowed)).catch(() => setPlatformAccess(false)); }, 0); return () => window.clearTimeout(timer); }, []);
+  useEffect(() => {
+    if (!tenant?.tenant.id) return;
+    const refresh = () => { void api<{ summary: { unread: number; waiting: number } }>("/api/commercial/conversations?summary=1").then((result) => setCustomerServiceBadge({ unread: result.summary.unread || 0, waiting: result.summary.waiting || 0 })).catch(() => undefined); };
+    const first = window.setTimeout(refresh, 350); const timer = window.setInterval(refresh, 10000);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [tenant?.tenant.id]);
 
   const canAdmin = tenant?.currentUser.role === "owner" || tenant?.currentUser.role === "admin";
   const indexedDocs = documents.filter((item) => item.indexStatus === "indexed").length;
@@ -327,7 +334,7 @@ export default function Dashboard({ user, isPlatformAdmin, initialTenantId, logo
   return <><main className="app-shell enterprise-shell">
     <aside className="sidebar enterprise-sidebar">
       <div className="brand enterprise-brand"><span className="brand-mark enterprise-brand-mark">{enterpriseInitial}</span><span><b title={enterpriseName}>{enterpriseName}</b><small>KnowFlow · 企业 AI 工作台</small></span></div>
-      <nav>{navGroups.map((group) => <div className="nav-group" key={group.group}><label>{group.group}</label>{group.items.map(([label, index]) => <button className={active === label ? "nav-item active" : "nav-item"} key={label} onClick={() => { setActive(label); setToast(null); }}><span className="nav-index">{index}</span>{label}</button>)}</div>)}</nav>
+      <nav>{navGroups.map((group) => <div className="nav-group" key={group.group}><label>{group.group}</label>{group.items.map(([label, index]) => <button className={active === label ? "nav-item active" : "nav-item"} key={label} onClick={() => { setActive(label); setToast(null); }}><span className="nav-index">{index}</span>{label}{label === "客服中心" && (customerServiceBadge.unread > 0 || customerServiceBadge.waiting > 0) && <span title={`${customerServiceBadge.unread} 条未读 · ${customerServiceBadge.waiting} 个待接待`} style={{ marginLeft: "auto", minWidth: 19, height: 19, padding: "0 5px", display: "grid", placeItems: "center", borderRadius: 999, background: customerServiceBadge.unread > 0 ? "#e64f5c" : "#d78a32", color: "#fff", fontSize: 8, fontWeight: 850 }}>{Math.min(99, customerServiceBadge.unread || customerServiceBadge.waiting)}{(customerServiceBadge.unread || customerServiceBadge.waiting) > 99 ? "+" : ""}</span>}</button>)}</div>)}</nav>
       {platformAccess && <a className="console-switch" href="/platform"><span>↗</span><div><b>超级管理员控制台</b><small>租户、套餐、支付与全局权限</small></div></a>}
       <div className="sidebar-foot"><span className="status-dot"/><span title={enterpriseName}>{enterpriseName} · 专属空间</span></div>
     </aside>

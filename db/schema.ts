@@ -283,6 +283,22 @@ export const customerConversations = sqliteTable("customer_conversations", {
   index("customer_conversations_assistant_idx").on(table.assistantId, table.lastMessageAt),
 ]);
 
+export const customerConversationReads = sqliteTable("customer_conversation_reads", {
+  id: text("id").primaryKey(), tenantId: text("tenant_id").notNull(), conversationId: text("conversation_id").notNull(),
+  memberId: text("member_id").notNull(), lastReadAt: text("last_read_at").notNull(),
+}, (table) => [
+  uniqueIndex("customer_conversation_reads_scope_unique").on(table.tenantId, table.conversationId, table.memberId),
+  index("customer_conversation_reads_member_idx").on(table.tenantId, table.memberId, table.lastReadAt),
+]);
+
+export const customerServicePresence = sqliteTable("customer_service_presence", {
+  id: text("id").primaryKey(), tenantId: text("tenant_id").notNull(), memberId: text("member_id").notNull(),
+  status: text("status").notNull().default("offline"), updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("customer_service_presence_scope_unique").on(table.tenantId, table.memberId),
+  index("customer_service_presence_updated_idx").on(table.tenantId, table.updatedAt),
+]);
+
 export const customerFaqs = sqliteTable("customer_faqs", {
   id: text("id").primaryKey(), tenantId: text("tenant_id").notNull(), assistantId: text("assistant_id").notNull(),
   question: text("question").notNull(), answer: text("answer").notNull(), keywordsJson: text("keywords_json").notNull().default("[]"),

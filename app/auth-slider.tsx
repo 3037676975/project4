@@ -44,9 +44,10 @@ export default function AuthSlider({ purpose, portal, resetKey, onVerified }: {
   }
 
   return <div className={`auth-slider ${status}`} aria-live="polite">
+    <div className="auth-slider-caption"><span><i/> 安全验证</span><small>{status === "verified" ? "验证完成" : "拖动滑块完成验证"}</small></div>
     <div className="auth-slider-scene">
-      <span className="auth-slider-target" style={{ left: `calc(${target}% - 22px)` }}>◇</span>
-      <span className="auth-slider-piece" style={{ left: `calc(${position}% - 22px)` }}>{status === "verified" ? "✓" : "◆"}</span>
+      <span className="auth-slider-target" style={{ left: `calc(${target}% - 22px)` }}>◎</span>
+      <span className="auth-slider-piece" style={{ left: `calc(${position}% - 22px)` }}>{status === "verified" ? "✓" : "→"}</span>
       <div className="auth-slider-progress" style={{ width: `${position}%` }}/>
       <input aria-label="安全验证滑块" type="range" min="0" max="100" step="1" value={position} disabled={status !== "ready"}
         onChange={(event) => setPosition(Number(event.target.value))}
