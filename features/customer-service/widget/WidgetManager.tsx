@@ -29,6 +29,32 @@ export function WidgetManager() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!settings.enabled || settings.autoOpen === false) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("knowflow-widget-open"));
+    }, settings.openDelay ?? 2000);
+
+    return () => window.clearTimeout(timer);
+  }, [settings]);
+
+  useEffect(() => {
+    const handler = () => {
+      if (!open) {
+        toggle();
+      }
+    };
+
+    window.addEventListener("knowflow-widget-open", handler);
+
+    return () => {
+      window.removeEventListener("knowflow-widget-open", handler);
+    };
+  }, [open, toggle]);
+
   if (!settings.enabled) {
     return null;
   }
