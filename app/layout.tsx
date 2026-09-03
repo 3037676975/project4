@@ -1,5 +1,18 @@
 import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+
+const geist = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://ai-kb-saas-guide-2026.drewlaurence4549.chatgpt.site"),
@@ -18,9 +31,12 @@ export const metadata: Metadata = {
     description: "从企业资料到 AI 客服、线索、工单和收入闭环。",
     images: ["/og.png"],
   },
-  other: { "codex-preview": "development" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="zh-CN"><body>{children}</body></html>;
+  return (
+    <html lang="zh-CN">
+      <body className={`${geist.variable} ${geistMono.variable}`}>{children}</body>
+    </html>
+  );
 }
