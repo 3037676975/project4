@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { sendWidgetMessage } from "./WidgetApi";
 
 const presets = ["了解套餐", "预约演示", "技术支持", "联系客服"];
+const visitorId = `visitor_${Date.now()}`;
 
 export function WidgetPanel({ open }: { open: boolean }) {
   const [input, setInput] = useState("");
@@ -20,10 +21,15 @@ export function WidgetPanel({ open }: { open: boolean }) {
     setLoading(true);
 
     try {
-      const result = await sendWidgetMessage(text);
+      const result = await sendWidgetMessage({
+        question: text,
+        visitorId,
+        mode: "ai",
+      });
+
       setMessages((items) => [
         ...items,
-        { role: "ai", text: result || "暂无回复，请稍后再试。" },
+        { role: "ai", text: result.answer || result.message || "暂无回复，请稍后再试。" },
       ]);
     } catch {
       setMessages((items) => [
