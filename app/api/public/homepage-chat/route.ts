@@ -13,22 +13,26 @@ type HomepageChatPayload = {
 
 function fallbackAnswer(question: string) {
   const text = question.toLowerCase();
-  if (/价格|套餐|收费|多少钱|费用/.test(text)) {
-    return "KnowFlow 支持按企业规模和客服能力配置套餐。你可以告诉我团队人数、预计月会话量和是否需要人工客服，我可以继续帮你梳理适合的方案。";
+  if (/价格|套餐|收费|多少钱|费用/.test(text)) return "KnowFlow 支持按企业规模、月会话量和是否需要人工客服配置套餐。你可以告诉我团队人数和预计月会话量，我可以继续帮你梳理。";
+  if (/演示|demo|试用|体验/.test(text)) return "可以。当前官网客服就是体验入口，也可以进入控制台继续配置知识库、AI 助手和人工接待流程。";
+  if (/人工|客服|联系|售后/.test(text)) return "支持 AI 先接待、人工无缝接管。访客不需要切换窗口，转人工后会直接进入客服工作台。";
+  if (/rag|知识库|文档|pdf|word|excel/.test(text)) return "KnowFlow 可以把企业文档接入知识库，通过 RAG 检索后生成有依据的回答，并保留来源、Trace 和质量评估。";
+  if (/部署|docker|私有化|服务器|宝塔/.test(text)) return "支持 Docker 私有化部署，也支持 GitHub + 宝塔自动部署。模型服务、向量库和业务应用可以按服务器资源拆分。";
+  return "收到你的问题。AI 服务这次响应较慢，我先用官网基础知识为你回复。你也可以继续问我：套餐、RAG、人工客服、私有化部署或预约演示。";
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("homepage_ai_timeout")), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  if (/演示|demo|试用|体验/.test(text)) {
-    return "可以。你可以直接在当前窗口体验官网客服，也可以进入控制台配置知识库、AI 助手和人工接待流程。";
-  }
-  if (/人工|客服|联系|售后/.test(text)) {
-    return "支持 AI 先接待、人工无缝接管。正式启用后，访客不需要切换窗口，转人工后会直接进入客服工作台。";
-  }
-  if (/rag|知识库|文档|pdf|word|excel/.test(text)) {
-    return "KnowFlow 可以把企业文档接入知识库，通过 RAG 检索后生成有依据的回答，并保留来源、Trace 和质量评估。";
-  }
-  if (/部署|docker|私有化|服务器/.test(text)) {
-    return "支持 Docker 私有化部署，也可以通过 GitHub + 宝塔自动部署。模型服务、向量库和业务应用可以按你的服务器资源拆分。";
-  }
-  return "收到你的问题。当前官网客服已经可以正常接收消息；如果后台已启用公开 AI 助手，我会优先走真实知识库与模型回答。你也可以问我：套餐、RAG、人工客服、私有化部署或预约演示。";
 }
 
 export async function POST(request: Request) {
@@ -84,7 +88,13 @@ export async function POST(request: Request) {
       }),
     });
 
-    const response = await publicChatPost(forwarded);
+    let response: Response;
+    try {
+      response = await withTimeout(publicChatPost(forwarded), 12000);
+    } catch {
+      return Response.json({ answer: fallbackAnswer(question), mode: "ai", fallback: true, timeout: true, sources: [] });
+    }
+
     if (response.ok) return response;
 
     const data = await response.clone().json().catch(() => null) as { error?: string } | null;
