@@ -84,8 +84,14 @@ export async function POST(request: Request) {
     }
 
     if (kind === "ocr") {
-      if (config.provider === "baidu") return Response.json({ ok: true, ...(await testBaiduOcr(config)) });
-      if (config.provider === "tencent") return Response.json({ ok: true, ...(await testTencentOcr(config)) });
+      if (config.provider === "baidu") {
+        try { return Response.json({ ok: true, ...(await testBaiduOcr(config)) }); }
+        catch (error) { return Response.json({ ok: false, error: error instanceof Error ? error.message : "百度云 OCR 测试失败" }, { status: 502 }); }
+      }
+      if (config.provider === "tencent") {
+        try { return Response.json({ ok: true, ...(await testTencentOcr(config)) }); }
+        catch (error) { return Response.json({ ok: false, error: error instanceof Error ? error.message : "腾讯云 OCR 测试失败" }, { status: 502 }); }
+      }
       if (config.provider === "docling") {
         const response = await fetch(`${config.baseUrl}/health`, {
           headers: { Authorization: `Bearer ${config.apiKey}` },
