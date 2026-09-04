@@ -54,15 +54,32 @@ test("system manual visibility and RAG application are independent switches", as
   assert.match(platform, /应用开关/);
 });
 
-test("OCR supports image text, scanned PDF and table structure modes", async () => {
-  const [cloud, upload, dashboard] = await Promise.all([
+test("OCR supports scanned documents, tables and the local PaddleOCR service", async () => {
+  const [cloud, upload, dashboard, compose, provider, paddle] = await Promise.all([
     readFile(new URL("../lib/cloud-ocr.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/knowledge/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../docker-compose.private.yml", import.meta.url), "utf8"),
+    readFile(new URL("../lib/provider.ts", import.meta.url), "utf8"),
+    readFile(new URL("../services/paddleocr/app/main.py", import.meta.url), "utf8"),
   ]);
-  assert.match(cloud, /RecognizeTableOCR/);
+  assert.match(cloud, /RecognizeTableAccurateOCR/);
   assert.match(cloud, /rest\/2\.0\/ocr\/v1\/\$\{engine\}/);
-  assert.match(cloud, /PdfBase64|pdf_file/);
+  assert.match(cloud, /pdf_file/);
   assert.match(upload, /recognitionMode/);
   assert.match(dashboard, /表格结构化 OCR/);
+  assert.match(compose, /paddleocr:/);
+  assert.match(compose, /PP-OCRv6_small_det/);
+  assert.match(compose, /PP-OCRv6_small_rec/);
+  assert.match(provider, /LOCAL_OCR_MODE/);
+  assert.match(provider, /http:\/\/paddleocr:8002/);
+  assert.match(paddle, /PaddleOCR/);
+  assert.match(paddle, /freeLocal/);
+});
+
+test("Tencent GeneralAccurateOCR never sends the removed DetectDirection parameter", async () => {
+  const cloud = await readFile(new URL("../lib/cloud-ocr.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(cloud, /DetectDirection/);
+  assert.match(cloud, /EnableDetectSplit/);
+  assert.match(cloud, /ConfigID: "OCR"/);
 });
