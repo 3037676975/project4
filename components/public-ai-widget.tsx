@@ -26,14 +26,22 @@ function localFallback(question: string) {
   return "收到你的问题。AI 服务这次响应较慢，我先用官网基础知识为你回复。你也可以继续问我：套餐、RAG、人工客服、私有化部署或预约演示。";
 }
 
+function createVisitorId() {
+  return `visitor_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 14)}_${Math.random().toString(36).slice(2, 14)}`;
+}
+
 function getVisitorId() {
   if (typeof window === "undefined") return "visitor_web_000000000000";
   const key = "knowflow_homepage_visitor";
-  const existing = window.localStorage.getItem(key);
-  if (existing && /^[a-zA-Z0-9_-]{12,120}$/.test(existing)) return existing;
-  const id = `visitor_${crypto.randomUUID().replaceAll("-", "")}`;
-  window.localStorage.setItem(key, id);
-  return id;
+  try {
+    const existing = window.localStorage.getItem(key);
+    if (existing && /^[a-zA-Z0-9_-]{12,120}$/.test(existing)) return existing;
+    const id = createVisitorId();
+    window.localStorage.setItem(key, id);
+    return id;
+  } catch {
+    return createVisitorId();
+  }
 }
 
 export default function PublicAiWidget() {
@@ -49,7 +57,7 @@ export default function PublicAiWidget() {
       id: "welcome",
       role: "ai",
       text: "你好 👋 我是 KnowFlow AI 客服。直接问我产品、套餐、RAG、部署或人工客服都可以。",
-      meta: "AI 助手在线 · 官网客服 v3",
+      meta: "AI 助手在线 · 官网客服 v4",
     },
   ]);
   const messageBoxRef = useRef<HTMLDivElement | null>(null);
@@ -108,7 +116,7 @@ export default function PublicAiWidget() {
         },
       ]);
     } catch (error) {
-      const timedOut = error instanceof DOMException && error.name === "AbortError";
+      const timedOut = error instanceof Error && error.name === "AbortError";
       setMessages((items) => [
         ...items,
         {
@@ -147,7 +155,7 @@ export default function PublicAiWidget() {
   }
 
   return (
-    <div style={{ position: "fixed", right: 18, bottom: 18, zIndex: 1000, width: "min(410px, calc(100vw - 28px))", height: "min(650px, calc(100vh - 36px))", minHeight: 520, display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: 28, border: "1px solid rgba(148,163,184,.25)", background: "rgba(255,255,255,.98)", boxShadow: "0 28px 90px rgba(15,23,42,.22), 0 8px 24px rgba(79,70,229,.08)", fontFamily: "var(--font-geist-sans), system-ui, sans-serif", backdropFilter: "blur(22px)" }}>
+    <div style={{ position: "fixed", right: 18, bottom: 18, zIndex: 1000, width: "min(410px, calc(100vw - 28px))", height: "min(650px, calc(100vh - 36px))", maxHeight: "calc(100vh - 36px)", display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: 28, border: "1px solid rgba(148,163,184,.25)", background: "rgba(255,255,255,.98)", boxShadow: "0 28px 90px rgba(15,23,42,.22), 0 8px 24px rgba(79,70,229,.08)", fontFamily: "var(--font-geist-sans), system-ui, sans-serif", backdropFilter: "blur(22px)" }}>
       <div style={{ position: "relative", padding: "18px 18px 14px", color: "white", background: "linear-gradient(135deg,#0f172a 0%,#312e81 55%,#6d28d9 100%)" }}>
         <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 85% -20%, rgba(255,255,255,.25), transparent 42%)", pointerEvents: "none" }} />
         <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 12 }}>
@@ -172,7 +180,7 @@ export default function PublicAiWidget() {
           <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} rows={1} placeholder="输入你的问题…" style={{ flex: 1, resize: "none", border: 0, outline: 0, padding: "8px 7px", font: "inherit", fontSize: 13, lineHeight: 1.45, color: "#0f172a", background: "transparent" }} />
           <button onClick={() => void sendMessage()} disabled={loading || !input.trim()} aria-label="发送消息" style={{ width: 38, height: 38, borderRadius: 13, border: 0, background: loading || !input.trim() ? "#cbd5e1" : "linear-gradient(135deg,#4f46e5,#7c3aed)", color: "white", fontSize: 18, cursor: loading || !input.trim() ? "default" : "pointer" }}>↑</button>
         </div>
-        <div style={{ marginTop: 7, textAlign: "center", color: "#94a3b8", fontSize: 10.5 }}>Enter 发送 · Shift + Enter 换行 · v3</div>
+        <div style={{ marginTop: 7, textAlign: "center", color: "#94a3b8", fontSize: 10.5 }}>Enter 发送 · Shift + Enter 换行 · v4</div>
       </div>
     </div>
   );
