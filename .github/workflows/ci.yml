@@ -1,0 +1,47 @@
+name: Project4 CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run tests without rebuilding
+        run: node --experimental-loader=./tests/cloudflare-loader.mjs --test tests/*.test.mjs
+
+      - name: Check PaddleOCR Python syntax
+        run: python -m py_compile services/paddleocr/app/main.py
+
+      - name: Check deployment shell scripts
+        run: bash -n scripts/init-private.sh scripts/auto-deploy.sh scripts/build-from-github-archive.sh scripts/verify-private-services.sh
+
+      - name: Check private Docker Compose
+        run: docker compose --env-file .env.private.example -f docker-compose.private.yml config >/dev/null
