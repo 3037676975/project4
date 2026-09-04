@@ -31,27 +31,9 @@ export function normalizeSiliconFlowBaseUrl(value: string) {
   return `${url.origin}/v1`;
 }
 
-export function normalizeBaiduOcrBaseUrl(value: string) {
-  const url = new URL(value.trim());
-  if (url.protocol !== "https:" || url.hostname !== "aip.baidubce.com" || (url.pathname !== "/" && url.pathname !== "")) {
-    throw new Error("百度云 OCR 地址应为 https://aip.baidubce.com");
-  }
-  return "https://aip.baidubce.com";
-}
-
-export function normalizeTencentOcrBaseUrl(value: string) {
-  const url = new URL(value.trim());
-  if (url.protocol !== "https:" || url.hostname !== "ocr.tencentcloudapi.com" || (url.pathname !== "/" && url.pathname !== "")) {
-    throw new Error("腾讯云 OCR 地址应为 https://ocr.tencentcloudapi.com");
-  }
-  return "https://ocr.tencentcloudapi.com";
-}
-
 /**
  * Tenant-controlled model endpoints are called by the Worker, so reject the
  * common local, metadata and private-network targets before storing them.
- * Production deployments should additionally keep these services behind a
- * public HTTPS reverse proxy and a long bearer token.
  */
 export function normalizeSelfHostedBaseUrl(value: string, label: string) {
   const url = new URL(value.trim());
@@ -71,40 +53,35 @@ export function normalizeSelfHostedBaseUrl(value: string, label: string) {
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
+function localPaddleOcrConfig(runtime: ReturnType<typeof getRuntime>): StoredProviderConfig | null {
+  if (runtime.APP_ENV !== "local" || !runtime.PARSER_API_KEY) return null;
+  return {
+    id: "builtin_paddleocr",
+    kind: "ocr",
+    // Keep the internal protocol compatible with the existing /v1/parse client.
+    provider: "docling",
+    baseUrl: "http://paddleocr:8002",
+    model: "PP-OCRv6-small",
+    secondaryModel: null,
+    dimensions: null,
+    apiKey: runtime.PARSER_API_KEY,
+    keyHint: "内置 PaddleOCR",
+    credentialId: null,
+    credentialIdHint: null,
+    region: null,
+    reuseApiKeyFrom: null,
+    candidateCount: null,
+    topN: null,
+  };
+}
+
 export async function loadProviderConfig(tenantId: string, kind: ProviderKind): Promise<StoredProviderConfig | null> {
   const runtime = getRuntime();
 
-  // Private/self-hosted Project4 deployments use the built-in PaddleOCR
-  // container for real tenant documents by default. Platform admins can still
-  // save and test Tencent/Baidu credentials independently. Set
-  // LOCAL_OCR_MODE=platform to route tenant OCR back through the platform cloud
-  // provider. Reusing PARSER_API_KEY keeps the internal OCR API off the public
-  // internet and avoids storing another secret.
-  if (
-    kind === "ocr"
-    && Boolean(tenantId)
-    && runtime.APP_ENV === "local"
-    && (runtime.LOCAL_OCR_MODE || "paddleocr") === "paddleocr"
-    && runtime.PARSER_API_KEY
-  ) {
-    return {
-      id: "builtin_paddleocr",
-      kind: "ocr",
-      provider: "docling",
-      baseUrl: "http://paddleocr:8002",
-      model: "PP-OCRv6",
-      secondaryModel: null,
-      dimensions: null,
-      apiKey: runtime.PARSER_API_KEY,
-      keyHint: "内置本地服务",
-      credentialId: null,
-      credentialIdHint: null,
-      region: null,
-      reuseApiKeyFrom: null,
-      candidateCount: null,
-      topN: null,
-    };
-  }
+  // OCR is deliberately not configurable in private deployments. Every
+  // tenant and the platform test endpoint use the same local PaddleOCR
+  // container, so old Baidu/Tencent/OpenAI OCR settings can never be selected.
+  if (kind === "ocr") return localPaddleOcrConfig(runtime);
 
   let scope: "platform" | "tenant" = "platform";
   let row = await runtime.DB.prepare(`SELECT ${PROVIDER_SELECT_COLUMNS}
