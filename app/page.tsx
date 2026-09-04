@@ -13,10 +13,10 @@ const benefits = [
 ] as const;
 
 const conversations = [
-  ["访客 · 北京", "产品功能介绍", "10:24", "AI", "blue"],
-  ["访客 · 上海", "如何接入网站客服？", "10:22", "人工", "orange"],
-  ["访客 · 广州", "价格与套餐说明", "10:18", "AI", "blue"],
-  ["访客 · 深圳", "售后与技术支持", "10:16", "人工", "orange"],
+  ["访客 · 北京", "产品功能介绍", "10:24", "AI", "blue", "/brand/visitor-male.jpg"],
+  ["访客 · 上海", "如何接入网站客服？", "10:22", "人工", "orange", "/brand/visitor-female.jpg"],
+  ["访客 · 广州", "价格与套餐说明", "10:18", "AI", "blue", "/brand/visitor-male.jpg"],
+  ["访客 · 深圳", "售后与技术支持", "10:16", "人工", "orange", "/brand/visitor-female.jpg"],
 ] as const;
 
 const stats = [
@@ -83,7 +83,7 @@ export default async function Page() {
           <div className={styles.heroAside} aria-hidden="true">
             <div className={styles.glowOne}/><div className={styles.glowTwo}/>
             <div className={styles.agentCard}>
-              <img src="/brand/support-agent.svg" alt=""/>
+              <img src="/brand/support-agent.jpg" alt="真人客服"/>
               <div><small>人工客服在线</small><b>平均 45 秒接入</b></div>
               <span>● 在线</span>
             </div>
@@ -97,8 +97,8 @@ export default async function Page() {
             <aside className={styles.inbox}>
               <header><div><b>会话收件箱</b><small>今天</small></div><em>12</em></header>
               <div className={styles.inboxTabs}><button className={styles.tabActive}>全部</button><button>待接待 3</button><button>我的</button></div>
-              {conversations.map(([name, text, time, mode, tone], index) => <article className={index === 0 ? styles.activeConversation : ""} key={name}>
-                <img src={index % 2 ? "/brand/support-agent.svg" : "/brand/visitor-avatar.svg"} alt=""/>
+              {conversations.map(([name, text, time, mode, tone, avatar], index) => <article className={index === 0 ? styles.activeConversation : ""} key={name}>
+                <img src={avatar} alt={`${name} 真人头像`}/>
                 <section><b>{name}</b><p>{text}</p><small>官网 · {time}</small></section>
                 <span className={tone === "orange" ? styles.tagOrange : styles.tagBlue}>{mode}</span>
               </article>)}
@@ -106,7 +106,7 @@ export default async function Page() {
             </aside>
 
             <section className={styles.liveChat}>
-              <header><div><img src="/brand/visitor-avatar.svg" alt=""/><section><b>访客 · 来自北京</b><small>官网价格页 · 第 3 次访问</small></section></div><div><span>AI 服务中</span><button>转人工</button><button>结束会话</button></div></header>
+              <header><div><img src="/brand/visitor-male.jpg" alt="访客真人头像"/><section><b>访客 · 来自北京</b><small>官网价格页 · 第 3 次访问</small></section></div><div><span>AI 服务中</span><button>转人工</button><button>结束会话</button></div></header>
               <div className={styles.chatBody}>
                 <div className={styles.timeDivider}><span/>今天 10:24<span/></div>
                 <div className={styles.botMessage}><span className={styles.botAvatar}>✦</span><section><small>KnowFlow AI</small><p>你好！很高兴为你服务。你想了解产品功能、套餐，还是网站接入方式？</p></section></div>
@@ -118,7 +118,7 @@ export default async function Page() {
             </section>
 
             <aside className={styles.insights}>
-              <section className={styles.visitorCard}><header><b>访客信息</b><span>高意向</span></header><div className={styles.visitorMain}><img src="/brand/visitor-avatar.svg" alt=""/><div><b>网页访客 #A318</b><small>北京 · 官网价格页</small></div></div><dl><div><dt>来源</dt><dd>官网首页</dd></div><div><dt>设备</dt><dd>macOS · Chrome</dd></div><div><dt>历史会话</dt><dd>3 次</dd></div></dl></section>
+              <section className={styles.visitorCard}><header><b>访客信息</b><span>高意向</span></header><div className={styles.visitorMain}><img src="/brand/visitor-male.jpg" alt="访客真人头像"/><div><b>网页访客 #A318</b><small>北京 · 官网价格页</small></div></div><dl><div><dt>来源</dt><dd>官网首页</dd></div><div><dt>设备</dt><dd>macOS · Chrome</dd></div><div><dt>历史会话</dt><dd>3 次</dd></div></dl></section>
               <section className={styles.statGrid}>{stats.map(([label,value,delta]) => <article key={label}><small>{label}</small><b>{value}</b><span>{delta}</span></article>)}</section>
               <section className={styles.miniAnalytics}><div><small>FAQ 命中率</small><b>82%</b><span>↑ 11%</span></div><div className={styles.sparkline}><i/><i/><i/><i/><i/><i/></div></section>
               <section className={styles.traceMini}><header><b>会话追踪</b><a href="/platform">查看 Trace →</a></header><div><span>01</span><p><b>RAG 检索</b><small>命中产品知识库</small></p></div><div><span>02</span><p><b>生成回答</b><small>来源可追溯</small></p></div></section>
