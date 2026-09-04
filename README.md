@@ -5,7 +5,7 @@
 ## 商用能力
 
 - 资料：PDF、DOCX、XLSX、PPTX、图片、TXT、Markdown、CSV、JSON 与粘贴文本。
-- 解析：原生 PDF / XLSX 优先；图片、逐页扫描 PDF 与表格图片/PDF 可分别选择文字 OCR 或结构化表格 OCR；Office 复杂版式调用 Docling + RapidOCR。
+- 解析：原生 PDF / XLSX 优先；Project4 私有部署默认内置 PaddleOCR（PP-OCRv6 small）处理图片与扫描 PDF，不按次调用云 OCR；Office 复杂版式仍可启用 Docling + RapidOCR。
 - RAG：带重叠的分块、批量 Embedding、混合检索、独立 Rerank、最低可靠度门槛、无依据拒答和标准题回归测试。
 - 向量与重排：默认调用硅基流动 HTTPS API，Embedding 使用 `BAAI/bge-m3`（1024 维），Rerank 使用 `BAAI/bge-reranker-v2-m3`；Project4 私有服务器不下载这两个模型。
 - 对外 API：客户 API Key、OpenAI 兼容 `models`、`chat/completions`、`responses`、`embeddings`、SSE 与 Trace。
@@ -27,7 +27,9 @@
 
 ## 服务边界
 
-Sites Worker 不运行 Python 模型。请在单独的 Linux 主机启动 [`docker-compose.open-source.yml`](./docker-compose.open-source.yml)，通过公网 HTTPS 反向代理暴露两个受 Bearer Token 保护的服务，再由超级管理员到 **平台控制台 → 模型服务** 中统一配置。
+Cloudflare / Sites Worker 自身不运行 Python 模型；需要托管版本时可在单独 Linux 主机启动 [`docker-compose.open-source.yml`](./docker-compose.open-source.yml)，再通过 HTTPS 反向代理给平台配置使用。
+
+Project4 **私有化 Docker 部署**则直接内置 `paddleocr` 服务，只监听宿主机 `127.0.0.1:8002`，容器之间通过 `PARSER_API_KEY` 鉴权。企业图片和扫描 PDF 默认走本机 PaddleOCR，不需要腾讯云/百度云 OCR 才能工作。云 OCR 配置仍保留给超级管理员做连接测试或手动切回。
 
 完整启动说明见 [`services/README.md`](./services/README.md)。
 
@@ -45,10 +47,41 @@ bash scripts/init-private.sh
 .\scripts\init-private.ps1
 ```
 
-脚本会生成仅本机使用的 `.env.private`，随后自动执行 D1 迁移并启动 KnowFlow、Qdrant、邮件中继与每分钟运营巡检。Embedding / Rerank 由超级管理员在平台后台填写硅基流动 API Key 后直接调用云 API，本机不下载 BGE 模型。Docling / RapidOCR 仍独立为 `parser` profile，不会在普通部署中自动构建。访问 `http://localhost:3000/login` 后用初始账号密码登录，系统会创建站内超级管理员并强制修改密码。本地支付采用沙箱；正式微信/支付宝收款必须另外配置商户网关。
+脚本会生成仅本机使用的 `.env.private`，默认写入 `LOCAL_OCR_MODE=paddleocr`，随后自动执行 D1 迁移并启动 KnowFlow、Qdrant、PaddleOCR、邮件中继与每分钟运营巡检。Embedding / Rerank 由超级管理员在平台后台填写硅基流动 API Key 后直接调用云 API，本机不下载 BGE 模型。Docling / RapidOCR 仍独立为 `parser` profile，不会在普通部署中自动构建。访问 `http://localhost:3000/login` 后用初始账号密码登录，系统会创建站内超级管理员并强制修改密码。本地支付采用沙箱；正式微信/支付宝收款必须另外配置商户网关。
 
 线上首次部署时，站点所有者打开 `/setup` 完成一次身份确认并自行创建超级管理员密码；以后超级管理员从 `/platform/login`、内部管理员从 `/admin/login`、企业账号从 `/workspace/login` 登录。密码永远不以明文写入数据库，只保存带随机盐的哈希。`PLATFORM_ADMIN_EMAILS` 只用于保护首次激活邮箱；内部管理员和企业成员由各自后台直接创建账号与临时密码。
 
+### PaddleOCR（本地免费 OCR）
+
+私有部署默认链路：
+
+```text
+企业上传图片/扫描 PDF
+        ↓
+KnowFlow
+        ↓
+paddleocr:8002
+        ↓
+PP-OCRv6_small_det + PP-OCRv6_small_rec
+        ↓
+提取文本 → 分块 → Embedding → Qdrant
+```
+
+特点：
+
+- OCR 推理在自己的服务器 CPU 上完成，不产生腾讯云/百度云按次 OCR API 费用。
+- 服务仅绑定 `127.0.0.1:8002`，并复用 `PARSER_API_KEY` 作为 Bearer Token。
+- 默认使用 PP-OCRv6 small，在识别精度与服务器资源占用之间取平衡。
+- `usage_records` 仍记录 OCR 页数，但 PaddleOCR 的 `cost_micros` 固定为 `0`。
+- 超级管理员后台仍可以保存/测试腾讯云、百度云 OCR；设置 `LOCAL_OCR_MODE=platform` 后才会让企业真实文档重新走平台云 OCR。
+
+自动部署完成后可执行：
+
+```bash
+bash scripts/verify-private-services.sh
+```
+
+脚本会检查 KnowFlow、PaddleOCR 和 Qdrant 是否均可用。
 
 ### Embedding / Rerank（硅基流动 API）
 
@@ -98,11 +131,12 @@ npm test
 ## 资料流
 
 1. 原文件写入 R2。
-2. 提取后的 Markdown 写入租户隔离的 D1 文档记录。
-3. 文本按句子边界切分，并保留重叠上下文，降低答案恰好落在切点上的风险。
-4. 每个分块由 BGE-M3 转成向量并保存模型名与实际维度。
-5. 查询时按 `tenant_id + knowledge_base_id` 过滤 Qdrant，融合向量与中文词法命中，再用独立 Reranker 精排。
-6. 低于助手阈值时直接拒答；达到阈值才调用生成模型。
-7. 回答、来源、Token、耗时、Credits 与真实成本进入 Trace。
+2. 图片和扫描 PDF 在私有部署中先由 PaddleOCR 提取文字；可直接读取的 PDF/文本文件优先走原生解析。
+3. 提取后的 Markdown 写入租户隔离的 D1 文档记录。
+4. 文本按句子边界切分，并保留重叠上下文，降低答案恰好落在切点上的风险。
+5. 每个分块由 BGE-M3 转成向量并保存模型名与实际维度。
+6. 查询时按 `tenant_id + knowledge_base_id` 过滤 Qdrant，融合向量与中文词法命中，再用独立 Reranker 精排。
+7. 低于助手阈值时直接拒答；达到阈值才调用生成模型。
+8. 回答、来源、Token、耗时、Credits 与真实成本进入 Trace。
 
-<!-- auto-deploy verification: 2026-09-03 -->
+<!-- auto-deploy verification: 2026-09-05 -->
