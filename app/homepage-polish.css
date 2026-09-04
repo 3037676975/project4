@@ -1,41 +1,45 @@
 /* Compatibility layer for homepage asset polish only.
-   Layout and typography stay in app/homepage.module.css. */
+   Keep the existing Chinese homepage structure and only improve realism details. */
 
-/* Use the selected top-left KnowFlow logo mark without changing homepage structure. */
+/* Restore the stable CSS-drawn KnowFlow mark from homepage.module.css.
+   This avoids broken raster/data-URI logo resources while keeping the selected K-style visual. */
 [class*="brandMark"] {
-  width: 46px !important;
-  height: 46px !important;
-  flex: 0 0 46px;
-  background: url("/brand/knowflow-mark.svg") center / contain no-repeat !important;
-  border-radius: 0 !important;
+  background: none !important;
   box-shadow: none !important;
 }
 
 [class*="brandMark"] > i {
-  display: none !important;
+  display: block !important;
 }
 
-/* Reuse the real brand mark inside the dashboard preview too. */
+/* Keep the dashboard mini logo on the original production-safe gradient mark. */
 [class*="miniLogo"] {
-  background: url("/brand/knowflow-mark.svg") center / contain no-repeat !important;
-  color: transparent !important;
-  box-shadow: none !important;
+  background: linear-gradient(135deg,#6652ee,#3f7be8) !important;
+  color: #fff !important;
 }
 
-/* Keep real portraits crisp and naturally cropped at avatar sizes. */
-[class*="agentCard"] img,
-[class*="inbox"] article img,
-[class*="liveChat"] header img,
-[class*="visitorMain"] img {
+/* Replace every legacy customer-service SVG avatar with the real JPG asset. */
+img[src="/brand/support-agent.svg"] {
+  content: url("/brand/support-agent.jpg") !important;
   object-fit: cover !important;
   object-position: center 24% !important;
   background: #f5f7ff;
 }
 
-/* The real bottom-right customer-service widget also uses the human agent portrait. */
+/* Existing visitor SVG is self-contained and remains stable; keep its crop natural. */
+[class*="inbox"] article img,
+[class*="liveChat"] header img,
+[class*="visitorMain"] img,
+[class*="agentCard"] img {
+  object-fit: cover !important;
+  object-position: center 24% !important;
+  background: #f5f7ff;
+}
+
+/* The real bottom-right customer-service widget also uses the same human agent portrait. */
 button[aria-label="重新打开 KnowFlow 客服"] > span:first-child,
 div:has(> button[aria-label="关闭客服"]) > div:first-child {
-  background: #f5f7ff url("/brand/support-agent.svg") center / cover no-repeat !important;
+  background: #f5f7ff url("/brand/support-agent.jpg") center 22% / cover no-repeat !important;
   color: transparent !important;
   overflow: hidden;
 }
