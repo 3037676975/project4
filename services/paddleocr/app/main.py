@@ -2,13 +2,12 @@ import asyncio
 import json
 import os
 import tempfile
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from paddleocr import PaddleOCR
-
-app = FastAPI(title="KnowFlow PaddleOCR", version="1.1.0")
 
 OCR_API_KEY = os.getenv("OCR_API_KEY", "").strip()
 OCR_MODEL_VERSION = os.getenv("OCR_MODEL_VERSION", "PP-OCRv6").strip() or "PP-OCRv6"
@@ -18,6 +17,7 @@ MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", str(12 * 1024 * 1024)))
 MAX_CONCURRENCY = max(1, int(os.getenv("MAX_CONCURRENCY", "1")))
 SUPPORTED_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
 _semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+_engine_ready = False
 
 
 def require_auth(authorization: str | None) -> None:
@@ -29,9 +29,9 @@ def require_auth(authorization: str | None) -> None:
 
 @lru_cache(maxsize=1)
 def get_ocr() -> PaddleOCR:
-    # PP-OCRv6 small keeps the self-hosted CPU/RAM footprint much lower than
-    # the medium/server tier while preserving substantially better accuracy
-    # than the tiny tier. Optional preprocessing models stay disabled.
+    # PP-OCRv6 small is a good fit for the 8-core / 8-GB private server: much
+    # lighter than the medium/server tier while retaining better small-text
+    # accuracy than the tiny tier. Optional preprocessing models stay disabled.
     return PaddleOCR(
         ocr_version=OCR_MODEL_VERSION,
         text_detection_model_name=OCR_DET_MODEL,
@@ -41,6 +41,25 @@ def get_ocr() -> PaddleOCR:
         use_doc_unwarping=False,
         use_textline_orientation=False,
     )
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global _engine_ready
+    # The old implementation returned HTTP 200 before model files were loaded.
+    # Automatic deployment therefore marked OCR healthy while the first real
+    # upload could still fail during model download/initialisation. Load the
+    # engine before the service becomes ready so health checks are meaningful.
+    try:
+        await asyncio.to_thread(get_ocr)
+        _engine_ready = True
+    except Exception as exc:
+        _engine_ready = False
+        raise RuntimeError(f"PaddleOCR model initialisation failed: {exc}") from exc
+    yield
+
+
+app = FastAPI(title="KnowFlow PaddleOCR", version="1.2.0", lifespan=lifespan)
 
 
 def result_json(result: object) -> dict:
@@ -82,13 +101,16 @@ def recognize(path: str) -> tuple[str, int]:
 @app.get("/health")
 async def health(authorization: str | None = Header(default=None)):
     require_auth(authorization)
+    if not _engine_ready or get_ocr.cache_info().currsize < 1:
+        raise HTTPException(status_code=503, detail="PaddleOCR model is not ready")
     return {
         "ok": True,
+        "ready": True,
         "engine": f"PaddleOCR {OCR_MODEL_VERSION}",
         "detectionModel": OCR_DET_MODEL,
         "recognitionModel": OCR_REC_MODEL,
         "device": "cpu",
-        "modelLoaded": get_ocr.cache_info().currsize > 0,
+        "modelLoaded": True,
         "freeLocal": True,
     }
 
@@ -100,10 +122,13 @@ async def parse_document(
     authorization: str | None = Header(default=None),
 ):
     require_auth(authorization)
+    if not _engine_ready:
+        raise HTTPException(status_code=503, detail="PaddleOCR model is not ready")
+
     filename = file.filename or "upload.bin"
     suffix = Path(filename).suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
-        raise HTTPException(status_code=415, detail="PaddleOCR 本地服务仅处理 PDF 和图片；Office 文档请使用 Docling。")
+        raise HTTPException(status_code=415, detail="PaddleOCR 本地服务仅处理 PDF 和图片；Office 文档请使用本地文档解析服务。")
 
     payload = await file.read(MAX_FILE_BYTES + 1)
     if len(payload) > MAX_FILE_BYTES:
