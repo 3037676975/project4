@@ -1,29 +1,165 @@
-/* Compatibility layer for homepage asset polish only.
-   Keep the existing Chinese homepage structure and only improve realism details. */
+/* Homepage realism layer.
+   Keep the existing Chinese homepage structure and improve product credibility without adding external CDN dependencies. */
 
-/* Keep the stable CSS-drawn KnowFlow mark from homepage.module.css. */
 [class*="brandMark"] {
   background: none !important;
   box-shadow: none !important;
 }
-
-[class*="brandMark"] > i {
-  display: block !important;
-}
-
-/* Keep the dashboard mini logo on the production-safe gradient mark. */
+[class*="brandMark"] > i { display:block !important; }
 [class*="miniLogo"] {
-  background: linear-gradient(135deg,#6652ee,#3f7be8) !important;
-  color: #fff !important;
+  background:linear-gradient(135deg,#6652ee,#3f7be8) !important;
+  color:#fff !important;
 }
 
-/* Real customer and support portraits are now direct JPG resources. */
 [class*="agentCard"] img,
 [class*="inbox"] article img,
 [class*="liveChat"] header img,
 [class*="visitorMain"] img {
-  display: block;
-  object-fit: cover !important;
-  object-position: center 22% !important;
-  background: #f5f7ff;
+  display:block;
+  object-fit:cover !important;
+  object-position:center 22% !important;
+  background:#f5f7ff;
+}
+
+/* Reduce the template-like “glossy demo” feeling. */
+[class*="dashboard"] {
+  border-radius:18px !important;
+  box-shadow:0 24px 70px rgba(25,34,58,.12),0 4px 14px rgba(44,54,92,.05) !important;
+}
+[class*="agentCard"],
+[class*="floatCard"],
+[class*="benefitRow"] > div,
+[class*="visitorCard"],
+[class*="miniAnalytics"],
+[class*="traceMini"] {
+  box-shadow:0 8px 24px rgba(34,43,70,.06) !important;
+}
+
+[class*="navCta"],
+[class*="primaryButton"],
+[class*="secondaryButton"],
+[class*="lightButton"] {
+  border-radius:10px !important;
+  letter-spacing:0 !important;
+}
+[class*="navCta"],
+[class*="primaryButton"] {
+  background:linear-gradient(135deg,#5046e5,#2f79ea) !important;
+  box-shadow:0 8px 22px rgba(64,76,210,.18) !important;
+}
+[class*="secondaryButton"] {
+  background:#fff !important;
+  border-color:#d8dee9 !important;
+  box-shadow:0 2px 8px rgba(30,41,59,.04) !important;
+}
+
+[class*="benefitRow"] > div {
+  border-radius:12px !important;
+  background:#fff !important;
+}
+[class*="benefitRow"] > div > span {
+  border-radius:9px !important;
+  background:#f1f4ff !important;
+}
+[class*="benefitRow"] small {
+  font-size:10px !important;
+  color:#7f8899 !important;
+}
+
+[class*="dashboardTop"] {
+  background:#fff !important;
+}
+[class*="dashboardTopActions"] {
+  flex-wrap:wrap;
+}
+[class*="dashboardTopActions"] button,
+[class*="liveChat"] header button,
+[class*="inboxTabs"] button,
+[class*="composer"] button {
+  cursor:pointer;
+}
+[class*="dashboardTopActions"] button {
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  background:#fff !important;
+  border-color:#dde2ea !important;
+  color:#4a5568 !important;
+}
+[class*="dashboardTopActions"] button:hover,
+[class*="liveChat"] header button:hover {
+  border-color:#bfc7d5 !important;
+  background:#f8fafc !important;
+}
+
+[class*="inbox"] {
+  background:#f7f9fc !important;
+}
+[class*="inbox"] article {
+  border-radius:9px !important;
+}
+[class*="activeConversation"] {
+  box-shadow:0 4px 14px rgba(40,49,78,.06) !important;
+}
+[class*="tagBlue"],
+[class*="tagOrange"] {
+  border-radius:6px !important;
+  white-space:nowrap;
+}
+
+[class*="liveChat"] header button {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  border-radius:7px !important;
+}
+[class*="botMessage"] p,
+[class*="userMessage"] {
+  font-size:9.5px !important;
+}
+[class*="botMessage"] em {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+}
+[class*="composer"] {
+  border-radius:9px !important;
+}
+[class*="composer"] span {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  border-radius:7px !important;
+}
+
+[class*="visitorCard"] dl div {
+  padding:2px 0;
+}
+[class*="traceMini"] header a {
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+}
+
+[class*="featureGrid"] article,
+[class*="scenarioGrid"] article {
+  border-radius:14px !important;
+  box-shadow:0 5px 18px rgba(34,43,70,.045) !important;
+}
+[class*="featureGrid"] article i,
+[class*="scenarioGrid"] article b,
+[class*="securityPills"] span {
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+}
+
+/* More desktop-app density at large sizes, still readable. */
+@media (min-width:1180px) {
+  [class*="workspace"] { min-height:560px !important; }
+  [class*="liveChat"] header b { font-size:11px !important; }
+  [class*="liveChat"] header small { font-size:8.5px !important; }
+  [class*="inbox"] article b { font-size:9.5px !important; }
+  [class*="inbox"] article p { font-size:8.5px !important; }
+  [class*="visitorMain"] b { font-size:9.5px !important; }
 }
