@@ -1,0 +1,61 @@
+/* Widget ratio correction.
+   Desktop public test pages should preview the same compact 380x600 customer-service card
+   that the production embed uses. The real iframe viewport is <=560px wide, so it still
+   fills the iframe edge-to-edge on embedded sites. */
+
+/* Keep the control-plane preview at the real production widget ratio instead of stretching
+   to the full width of the settings column. */
+.official-widget-preview {
+  width: min(100%, 380px) !important;
+  aspect-ratio: 19 / 30;
+  display: grid !important;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  margin: 14px auto 16px !important;
+}
+.official-widget-preview-body {
+  min-height: 0 !important;
+  overflow: hidden;
+}
+.official-widget-preview-input {
+  align-self: end;
+}
+
+/* Standalone /chat/:publicId test page: compact centered widget, matching widget.js. */
+.widget-page {
+  min-height: 100dvh !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 18px !important;
+  background:
+    radial-gradient(circle at 18% 7%, rgba(109,74,255,.12), transparent 34%),
+    #f1f4f8 !important;
+}
+.widget-card {
+  width: min(380px, calc(100vw - 36px)) !important;
+  max-width: 380px !important;
+  height: min(600px, calc(100dvh - 36px)) !important;
+  max-height: 600px !important;
+  min-height: 0 !important;
+  border: 1px solid rgba(148,163,184,.25) !important;
+  border-radius: 26px !important;
+  box-shadow: 0 28px 90px rgba(15,23,42,.18), 0 8px 24px rgba(79,70,229,.07) !important;
+}
+
+/* Production iframe is 380px wide (or less). In that context the card must consume the
+   iframe exactly; mobile direct visits get the same natural full-screen treatment. */
+@media (max-width: 560px) {
+  .widget-page {
+    padding: 0 !important;
+    background: transparent !important;
+  }
+  .widget-card {
+    width: 100% !important;
+    max-width: none !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    min-height: 100dvh !important;
+    border: 0 !important;
+    border-radius: 26px !important;
+    box-shadow: none !important;
+  }
+}
