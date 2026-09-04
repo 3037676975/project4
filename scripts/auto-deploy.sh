@@ -41,27 +41,36 @@ fi
 
 COMMIT="$(git rev-parse --short HEAD)"
 echo "[Project4] 当前版本: $COMMIT"
-echo "[Project4] 部署方式: GitHub 压缩包下载 -> 解压 -> Docker 构建 -> 启动"
+echo "[Project4] 部署源码目录: $PROJECT_DIR"
 
-bash "$PROJECT_DIR/scripts/build-from-github-archive.sh" "$TARGET_SHA"
+if [[ "${PROJECT4_DEPLOY_FROM_ARCHIVE:-0}" == "1" ]]; then
+  echo "[Project4] 使用 GitHub archive 构建模式"
+  bash "$PROJECT_DIR/scripts/build-from-github-archive.sh" "$TARGET_SHA"
+else
+  echo "[Project4] 使用当前 Git checkout 直接构建，确保页面与 main 完全一致"
+  docker compose \
+    -p "$COMPOSE_PROJECT_NAME" \
+    --env-file "$PROJECT_DIR/.env.private" \
+    -f "$PROJECT_DIR/docker-compose.private.yml" \
+    build --pull knowflow
+fi
 
 echo "[Project4] 使用新镜像重新创建 Docker 服务"
 docker compose \
   -p "$COMPOSE_PROJECT_NAME" \
   --env-file "$PROJECT_DIR/.env.private" \
   -f "$PROJECT_DIR/docker-compose.private.yml" \
-  up -d --force-recreate
+  up -d --force-recreate --no-build
 
 echo "[Project4] 等待 KnowFlow 服务启动"
 HEALTH_OK=0
-for i in {1..30}; do
-  if curl -fsS http://127.0.0.1:3000 >/dev/null; then
+for i in {1..40}; do
+  if curl -fsS --max-time 5 http://127.0.0.1:3000 >/dev/null; then
     HEALTH_OK=1
-    echo "[Project4] 健康检查通过 (${i}/30)"
+    echo "[Project4] 健康检查通过 (${i}/40)"
     break
   fi
-
-  echo "[Project4] 服务启动等待 ${i}/30"
+  echo "[Project4] 服务启动等待 ${i}/40"
   sleep 3
 done
 
@@ -71,7 +80,7 @@ if [[ "$HEALTH_OK" != "1" ]]; then
     -p "$COMPOSE_PROJECT_NAME" \
     --env-file "$PROJECT_DIR/.env.private" \
     -f "$PROJECT_DIR/docker-compose.private.yml" \
-    logs --tail=100 knowflow || true
+    logs --tail=150 knowflow || true
   exit 1
 fi
 
