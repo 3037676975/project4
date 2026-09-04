@@ -18,6 +18,16 @@ type WidgetConfig = {
   quickQuestions: string[];
 };
 
+type SyncedAgentMessage = {
+  id: string;
+  role: string;
+  content: string;
+  messageType?: string;
+  attachmentName?: string | null;
+  attachmentMime?: string | null;
+  attachmentSize?: number | null;
+};
+
 const DEFAULT_CONFIG: WidgetConfig = {
   enabled: true,
   autoOpen: true,
@@ -27,6 +37,8 @@ const DEFAULT_CONFIG: WidgetConfig = {
 };
 
 const DISMISSED_KEY = "knowflow_widget_dismissed";
+const HOMEPAGE_CONVERSATION_KEY = "knowflow_homepage_conversation";
+const HOMEPAGE_CONVERSATION_TOKEN_KEY = "knowflow_homepage_conversation_token";
 
 function makeId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
@@ -87,6 +99,12 @@ export default function PublicAiWidget() {
   useEffect(() => {
     let cancelled = false;
     setVisitorId(getVisitorId());
+    try {
+      setConversationId(window.localStorage.getItem(HOMEPAGE_CONVERSATION_KEY) || "");
+      setConversationToken(window.localStorage.getItem(HOMEPAGE_CONVERSATION_TOKEN_KEY) || "");
+    } catch {
+      // Storage may be blocked; the current page session can still work.
+    }
 
     async function initialize() {
       let next = DEFAULT_CONFIG;
@@ -123,6 +141,53 @@ export default function PublicAiWidget() {
     if (box) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
   }, [messages, loading, open]);
 
+  useEffect(() => {
+    if (!conversationId || !conversationToken || !visitorId) return;
+    let active = true;
+
+    const sync = async () => {
+      try {
+        const response = await fetch("/api/public/homepage-conversation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ conversationId, conversationToken, visitorId }),
+        });
+        const data = await response.json().catch(() => ({})) as {
+          mode?: "ai" | "human";
+          status?: string;
+          assigned?: boolean;
+          messages?: SyncedAgentMessage[];
+        };
+        if (!response.ok || !active) return;
+        setMode(data.mode === "human" ? "human" : "ai");
+        const incoming = Array.isArray(data.messages) ? data.messages : [];
+        if (!incoming.length) return;
+        setMessages((current) => {
+          const known = new Set(current.map((item) => item.id));
+          const fresh = incoming.filter((item) => !known.has(item.id)).map((item) => ({
+            id: item.id,
+            role: "ai" as const,
+            text: item.messageType && item.messageType !== "text"
+              ? `${item.messageType === "image" ? "🖼" : "📎"} ${item.attachmentName || item.content || "客服附件"}`
+              : item.content,
+            meta: "人工客服回复 · 已实时同步",
+          }));
+          return fresh.length ? [...current, ...fresh] : current;
+        });
+      } catch {
+        // Temporary network errors are retried by the next poll.
+      }
+    };
+
+    void sync();
+    const timer = window.setInterval(() => void sync(), 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [conversationId, conversationToken, visitorId]);
+
   function closeWidget() {
     try { window.localStorage.setItem(DISMISSED_KEY, "1"); } catch { /* ignore */ }
     setOpen(false);
@@ -157,18 +222,30 @@ export default function PublicAiWidget() {
         conversationId?: string;
         conversationToken?: string;
         fallback?: boolean;
+        mode?: "ai" | "human";
         sources?: Array<{ document?: string }>;
       };
-      if (data.conversationId) setConversationId(data.conversationId);
-      if (data.conversationToken) setConversationToken(data.conversationToken);
+      if (data.conversationId) {
+        setConversationId(data.conversationId);
+        try { window.localStorage.setItem(HOMEPAGE_CONVERSATION_KEY, data.conversationId); } catch { /* ignore */ }
+      }
+      if (data.conversationToken) {
+        setConversationToken(data.conversationToken);
+        try { window.localStorage.setItem(HOMEPAGE_CONVERSATION_TOKEN_KEY, data.conversationToken); } catch { /* ignore */ }
+      }
+      if (data.mode) setMode(data.mode);
       if (!response.ok && !data.answer) throw new Error(data.error || `服务请求失败（${response.status}）`);
       const sourceText = Array.isArray(data.sources) && data.sources.length ? ` · ${data.sources.length} 个知识来源` : "";
-      setMessages((items) => [...items, {
-        id: makeId("ai"),
-        role: "ai",
-        text: data.answer || localFallback(text),
-        meta: data.fallback ? "官网基础知识回复" : `AI 知识库回复${sourceText}`,
-      }]);
+      if (data.answer) {
+        setMessages((items) => [...items, {
+          id: makeId("ai"),
+          role: "ai",
+          text: data.answer,
+          meta: data.mode === "human" ? "人工客服队列" : data.fallback ? "官网基础知识回复" : `AI 知识库回复${sourceText}`,
+        }]);
+      } else if (data.fallback) {
+        setMessages((items) => [...items, { id: makeId("fallback"), role: "ai", text: localFallback(text), meta: "官网基础知识回复" }]);
+      }
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "AbortError";
       setMessages((items) => [...items, {
@@ -184,15 +261,40 @@ export default function PublicAiWidget() {
     }
   }
 
-  function switchMode(next: "ai" | "human") {
-    setMode(next);
-    if (next === "human") {
+  async function switchMode(next: "ai" | "human") {
+    if (next === mode || loading) return;
+    setLoading(true);
+    try {
+      if (conversationId && conversationToken && visitorId) {
+        const response = await fetch("/api/public/homepage-conversation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conversationId, conversationToken, visitorId, action: "switch_mode", mode: next }),
+        });
+        const data = await response.json().catch(() => ({})) as { mode?: "ai" | "human"; error?: string };
+        if (!response.ok) throw new Error(data.error || "客服模式切换失败。");
+        setMode(data.mode === "human" ? "human" : "ai");
+      } else {
+        setMode(next);
+      }
       setMessages((items) => [...items, {
         id: makeId("system"),
         role: "ai",
-        text: "已切换到人工接待模式。发送下一条消息后，会尝试把会话交给客服工作台。",
-        meta: "人工接待",
+        text: next === "human"
+          ? "已切换到人工接待模式。发送下一条消息后，会进入企业客服工作台；客服回复会自动同步到这里。"
+          : "已恢复 AI 接待，后续问题将继续优先查询企业知识库。",
+        meta: next === "human" ? "人工接待" : "AI 接待",
       }]);
+    } catch (error) {
+      setMessages((items) => [...items, {
+        id: makeId("mode-error"),
+        role: "ai",
+        text: error instanceof Error ? error.message : "客服模式切换失败。",
+        meta: "系统提示",
+        error: true,
+      }]);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -216,23 +318,23 @@ export default function PublicAiWidget() {
           <button onClick={closeWidget} aria-label="关闭客服" style={{ width: 34, height: 34, borderRadius: 12, border: "1px solid rgba(255,255,255,.16)", background: "rgba(255,255,255,.08)", color: "white", fontSize: 20, cursor: "pointer" }}>×</button>
         </div>
         <div style={{ position: "relative", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 13, padding: 4, borderRadius: 14, background: "rgba(255,255,255,.09)" }}>
-          <button onClick={() => switchMode("ai")} style={{ border: 0, borderRadius: 10, padding: "8px 10px", cursor: "pointer", fontWeight: 650, fontSize: 12, color: mode === "ai" ? "#312e81" : "rgba(255,255,255,.75)", background: mode === "ai" ? "white" : "transparent" }}>✦ AI 接待</button>
-          <button onClick={() => switchMode("human")} style={{ border: 0, borderRadius: 10, padding: "8px 10px", cursor: "pointer", fontWeight: 650, fontSize: 12, color: mode === "human" ? "#312e81" : "rgba(255,255,255,.75)", background: mode === "human" ? "white" : "transparent" }}>◎ 转人工</button>
+          <button onClick={() => void switchMode("ai")} style={{ border: 0, borderRadius: 10, padding: "8px 10px", cursor: "pointer", fontWeight: 650, fontSize: 12, color: mode === "ai" ? "#312e81" : "rgba(255,255,255,.75)", background: mode === "ai" ? "white" : "transparent" }}>✦ AI 接待</button>
+          <button onClick={() => void switchMode("human")} style={{ border: 0, borderRadius: 10, padding: "8px 10px", cursor: "pointer", fontWeight: 650, fontSize: 12, color: mode === "human" ? "#312e81" : "rgba(255,255,255,.75)", background: mode === "human" ? "white" : "transparent" }}>◎ 转人工</button>
         </div>
       </div>
 
       <div ref={messageBoxRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 14px 12px", background: "linear-gradient(180deg,#f8fafc 0%,#ffffff 45%)" }}>
         {messages.map((message) => <div key={message.id} style={{ display: "flex", justifyContent: message.role === "user" ? "flex-end" : "flex-start", marginBottom: 14 }}><div style={{ maxWidth: "86%" }}>{message.role === "ai" && <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, color: "#64748b", fontSize: 11 }}><img src="/brand/support-agent-v3.jpg" alt="真人客服" style={{ width: 22, height: 22, borderRadius: 7, objectFit: "cover", objectPosition: "center 20%" }} /> KnowFlow AI</div>}<div style={{ padding: "11px 13px", borderRadius: message.role === "user" ? "17px 17px 5px 17px" : "17px 17px 17px 5px", background: message.role === "user" ? "linear-gradient(135deg,#4f46e5,#6d28d9)" : message.error ? "#fff7ed" : "#fff", color: message.role === "user" ? "white" : "#1e293b", border: message.role === "user" ? "none" : `1px solid ${message.error ? "#fed7aa" : "#e2e8f0"}`, boxShadow: message.role === "user" ? "0 8px 18px rgba(79,70,229,.2)" : "0 6px 18px rgba(15,23,42,.05)", fontSize: 13.5, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{message.text}</div>{message.meta && <div style={{ marginTop: 5, color: "#94a3b8", fontSize: 10.5, textAlign: message.role === "user" ? "right" : "left" }}>{message.meta}</div>}</div></div>)}
-        {loading && <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#64748b", fontSize: 12 }}><img src="/brand/support-agent-v3.jpg" alt="真人客服" style={{ width: 28, height: 28, borderRadius: 9, objectFit: "cover", objectPosition: "center 20%" }} /><span>正在查询知识库… 最多等待 15 秒</span></div>}
+        {loading && <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#64748b", fontSize: 12 }}><img src="/brand/support-agent-v3.jpg" alt="真人客服" style={{ width: 28, height: 28, borderRadius: 9, objectFit: "cover", objectPosition: "center 20%" }} /><span>{mode === "human" ? "正在连接人工客服…" : "正在查询知识库… 最多等待 15 秒"}</span></div>}
       </div>
 
       <div style={{ padding: "10px 12px 12px", borderTop: "1px solid #eef2f7", background: "#fff" }}>
         <div style={{ display: "flex", gap: 7, overflowX: "auto", paddingBottom: 9 }}>{config.quickQuestions.map((item) => <button key={item} onClick={() => void sendMessage(item)} disabled={loading} style={{ flex: "0 0 auto", borderRadius: 999, padding: "7px 10px", border: "1px solid #e0e7ff", background: "#f8faff", color: "#4f46e5", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>{item}</button>)}</div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: 7, borderRadius: 17, border: "1px solid #dbe3ee", background: "#fff", boxShadow: "0 6px 18px rgba(15,23,42,.04)" }}>
-          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} rows={1} placeholder="输入你的问题…" style={{ flex: 1, resize: "none", border: 0, outline: 0, padding: "8px 7px", font: "inherit", fontSize: 13, lineHeight: 1.45, color: "#0f172a", background: "transparent" }} />
+          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} rows={1} placeholder={mode === "human" ? "给人工客服发送消息…" : "输入你的问题…"} style={{ flex: 1, resize: "none", border: 0, outline: 0, padding: "8px 7px", font: "inherit", fontSize: 13, lineHeight: 1.45, color: "#0f172a", background: "transparent" }} />
           <button onClick={() => void sendMessage()} disabled={loading || !input.trim()} aria-label="发送消息" style={{ width: 38, height: 38, borderRadius: 13, border: 0, background: loading || !input.trim() ? "#cbd5e1" : "linear-gradient(135deg,#4f46e5,#7c3aed)", color: "white", fontSize: 18, cursor: loading || !input.trim() ? "default" : "pointer" }}>↑</button>
         </div>
-        <div style={{ marginTop: 7, textAlign: "center", color: "#94a3b8", fontSize: 10.5 }}>Enter 发送 · Shift + Enter 换行</div>
+        <div style={{ marginTop: 7, textAlign: "center", color: "#94a3b8", fontSize: 10.5 }}>Enter 发送 · Shift + Enter 换行 · 人工回复约 3 秒内同步</div>
       </div>
     </div>
   );
