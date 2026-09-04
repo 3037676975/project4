@@ -5,6 +5,12 @@ import { getRuntime } from "../../../lib/runtime";
 import { getOrCreateTenant, requireRole, routeError } from "../../../lib/tenant";
 import { createWechatV2BillingOrder } from "../../../lib/wechat-v2-billing";
 
+const noStoreHeaders = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+};
+
 export async function GET(request: Request) {
   try {
     const context = await getOrCreateTenant(request); const { DB } = getRuntime(); const month = new Date().toISOString().slice(0, 7); const payment = await paymentState();
@@ -26,7 +32,7 @@ export async function GET(request: Request) {
       plans: (plans.results as Array<Record<string, unknown>>).map((row) => ({ id: row.id, code: row.code, name: row.name, monthlyPriceCents: row.monthly_price_cents, requestQuota: row.request_quota, tokenQuota: row.token_quota, storageQuotaBytes: row.storage_quota_bytes, monthlyCredits: row.monthly_credits, apiKeyLimit: row.api_key_limit, memberLimit: row.member_limit, widgetConversationQuota: row.widget_conversation_quota, leadQuota: row.lead_quota, features: JSON.parse(String(row.features_json)) })),
       subscription: subscription ? { id: subscription.id, status: subscription.status, source: subscription.source, startsAt: subscription.starts_at, expiresAt: subscription.expires_at, autoRenew: Boolean(subscription.auto_renew), plan: { id: subscription.plan_id, code: subscription.code, name: subscription.name } } : null,
       usage: { month, requests: usage?.request_count ?? 0, tokens: usage?.token_count ?? 0, creditsUsed: usage?.credits_used ?? 0, apiKeys: counts?.api_keys ?? 0, members: counts?.members ?? 0, storageBytes: counts?.storage_bytes ?? 0, creditsBalance: counts?.credits_balance ?? 0 },
-    });
+    }, { headers: noStoreHeaders });
   } catch (error) { return routeError(error); }
 }
 
