@@ -9,6 +9,12 @@ import { sha256 } from "../../../../lib/security";
 type ChatPayload = { publicId?: unknown; question?: unknown; conversationId?: unknown; conversationToken?: unknown; visitorId?: unknown; embedToken?: unknown; mode?: unknown };
 type ExistingConversation = { id: string; message_count: number; access_token_hash: string | null; mode: string };
 
+const noStoreHeaders = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+};
+
 export async function POST(request: Request) {
   try {
     let payload: ChatPayload;
@@ -101,9 +107,9 @@ export async function POST(request: Request) {
           DB.prepare("UPDATE customer_conversations SET mode = 'human', status = 'handoff', message_count = message_count + 1, updated_at = ? WHERE id = ? AND tenant_id = ?")
             .bind(new Date().toISOString(), conversationId, assistant.tenantId),
         ]);
-        return Response.json({ conversationId, conversationToken: responseToken, messageId, answer: handoffMessage, mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [], ticketId: createdTicketId || ticket?.id || "" });
+        return Response.json({ conversationId, conversationToken: responseToken, messageId, answer: handoffMessage, mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [], ticketId: createdTicketId || ticket?.id || "" }, { headers: noStoreHeaders });
       }
-      return Response.json({ conversationId, conversationToken: responseToken, messageId: "", answer: "", mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [], ticketId: createdTicketId || ticket?.id || "" });
+      return Response.json({ conversationId, conversationToken: responseToken, messageId: "", answer: "", mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [], ticketId: createdTicketId || ticket?.id || "" }, { headers: noStoreHeaders });
     }
 
     const faq = await findFaqMatch(assistant.tenantId, assistant.id, question);
@@ -117,21 +123,48 @@ export async function POST(request: Request) {
           source_hit_count = source_hit_count + 1, ai_resolved = 1, quality_score_milli = ?, last_message_at = ?, updated_at = ?
           WHERE id = ? AND tenant_id = ?`).bind(Math.round(faq.score * 1000), finishedAt, finishedAt, conversationId, assistant.tenantId),
       ]);
-      return Response.json({ conversationId, conversationToken: responseToken, messageId, answer: faq.answer, mode: "ai", resolved: true, grounded: true, faqMatched: true, qualityScore: Number(faq.score.toFixed(3)), sources: [{ document: "FAQ", excerpt: faq.question }] });
+      return Response.json({ conversationId, conversationToken: responseToken, messageId, answer: faq.answer, mode: "ai", resolved: true, grounded: true, faqMatched: true, qualityScore: Number(faq.score.toFixed(3)), sources: [{ document: "FAQ", excerpt: faq.question }] }, { headers: noStoreHeaders });
     }
 
-    const messages = parseMessages([...history, { role: "user", content: question }]);
-    const prepared = await prepareCompletion({ tenantId: assistant.tenantId, boundAssistantId: assistant.id, messages });
-    const result = await completeOnce(prepared, 700);
-    const resolved = result.grounded; const finishedAt = new Date().toISOString(); const answerMessageId = `msg_${crypto.randomUUID().replaceAll("-", "")}`;
-    await DB.batch([
-      DB.prepare(`INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, trace_id, source_count, message_type, created_at)
-        VALUES (?, ?, ?, 'assistant', ?, ?, ?, 'text', ?)`)
-        .bind(answerMessageId, assistant.tenantId, conversationId, result.answer, result.traceId, prepared.sources.length, finishedAt),
-      DB.prepare(`UPDATE customer_conversations SET status = ?, mode = 'ai', message_count = message_count + 1,
-        source_hit_count = source_hit_count + ?, ai_resolved = ?, quality_score_milli = ?, last_message_at = ?, updated_at = ?
-        WHERE id = ? AND tenant_id = ?`).bind(resolved ? "resolved" : "unresolved", prepared.sources.length, resolved ? 1 : 0, Math.round(result.qualityScore * 1000), finishedAt, finishedAt, conversationId, assistant.tenantId),
-    ]);
-    return Response.json({ conversationId, conversationToken: responseToken, messageId: answerMessageId, answer: result.answer, mode: "ai", resolved, grounded: result.grounded, faqMatched: false, qualityScore: Number(result.qualityScore.toFixed(3)), sources: prepared.sources.slice(0, 3).map((source) => ({ document: source.document, excerpt: source.text.slice(0, 160) })) });
+    try {
+      const messages = parseMessages([...history, { role: "user", content: question }]);
+      const prepared = await prepareCompletion({ tenantId: assistant.tenantId, boundAssistantId: assistant.id, messages });
+      const result = await completeOnce(prepared, 700);
+      const resolved = result.grounded; const finishedAt = new Date().toISOString(); const answerMessageId = `msg_${crypto.randomUUID().replaceAll("-", "")}`;
+      await DB.batch([
+        DB.prepare(`INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, trace_id, source_count, message_type, created_at)
+          VALUES (?, ?, ?, 'assistant', ?, ?, ?, 'text', ?)`)
+          .bind(answerMessageId, assistant.tenantId, conversationId, result.answer, result.traceId, prepared.sources.length, finishedAt),
+        DB.prepare(`UPDATE customer_conversations SET status = ?, mode = 'ai', message_count = message_count + 1,
+          source_hit_count = source_hit_count + ?, ai_resolved = ?, quality_score_milli = ?, last_message_at = ?, updated_at = ?
+          WHERE id = ? AND tenant_id = ?`).bind(resolved ? "resolved" : "unresolved", prepared.sources.length, resolved ? 1 : 0, Math.round(result.qualityScore * 1000), finishedAt, finishedAt, conversationId, assistant.tenantId),
+      ]);
+      return Response.json({ conversationId, conversationToken: responseToken, messageId: answerMessageId, answer: result.answer, mode: "ai", resolved, grounded: result.grounded, faqMatched: false, qualityScore: Number(result.qualityScore.toFixed(3)), sources: prepared.sources.slice(0, 3).map((source) => ({ document: source.document, excerpt: source.text.slice(0, 160) })) }, { headers: noStoreHeaders });
+    } catch {
+      const finishedAt = new Date().toISOString();
+      const answerMessageId = `msg_${crypto.randomUUID().replaceAll("-", "")}`;
+      const fallbackAnswer = `${assistant.brandName || "智能客服"} 的 AI 服务暂时繁忙，我已经保留这次会话。你可以继续留言，或点击“转人工”由客服接待。`;
+      await DB.batch([
+        DB.prepare(`INSERT INTO customer_messages (id, tenant_id, conversation_id, role, content, source_count, message_type, created_at)
+          VALUES (?, ?, ?, 'assistant', ?, 0, 'text', ?)`)
+          .bind(answerMessageId, assistant.tenantId, conversationId, fallbackAnswer, finishedAt),
+        DB.prepare(`UPDATE customer_conversations SET status = 'unresolved', mode = 'ai', message_count = message_count + 1,
+          ai_resolved = 0, quality_score_milli = 0, last_message_at = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`)
+          .bind(finishedAt, finishedAt, conversationId, assistant.tenantId),
+      ]).catch(() => undefined);
+      return Response.json({
+        conversationId,
+        conversationToken: responseToken,
+        messageId: answerMessageId,
+        answer: fallbackAnswer,
+        mode: "ai",
+        resolved: false,
+        grounded: false,
+        faqMatched: false,
+        fallback: true,
+        qualityScore: 0,
+        sources: [],
+      }, { headers: noStoreHeaders });
+    }
   } catch (error) { return publicWidgetError(error); }
 }
