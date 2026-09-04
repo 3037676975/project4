@@ -3,7 +3,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
-RUN chmod +x scripts/*.sh && npm run build
+RUN base64 -d public/brand/support-agent-fixed.jpg.b64.txt > public/brand/support-agent.jpg \
+    && test -s public/brand/support-agent.jpg \
+    && chmod +x scripts/*.sh \
+    && npm run build
 
 FROM node:22-bookworm-slim
 WORKDIR /app
