@@ -1,2 +1,33 @@
-/* Deprecated compatibility layer.
-   Homepage styling now lives entirely in app/homepage.module.css. */
+/* Compatibility layer for homepage asset polish only.
+   Layout and typography stay in app/homepage.module.css. */
+
+/* Use the selected top-left KnowFlow logo mark without changing homepage structure. */
+[class*="brandMark"] {
+  width: 46px !important;
+  height: 46px !important;
+  flex: 0 0 46px;
+  background: url("/brand/knowflow-mark.svg") center / contain no-repeat !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+[class*="brandMark"] > i {
+  display: none !important;
+}
+
+/* Reuse the real brand mark inside the dashboard preview too. */
+[class*="miniLogo"] {
+  background: url("/brand/knowflow-mark.svg") center / contain no-repeat !important;
+  color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Keep real portraits crisp and naturally cropped at avatar sizes. */
+[class*="agentCard"] img,
+[class*="inbox"] article img,
+[class*="liveChat"] header img,
+[class*="visitorMain"] img {
+  object-fit: cover !important;
+  object-position: center 24% !important;
+  background: #f5f7ff;
+}
