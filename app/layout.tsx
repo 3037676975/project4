@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./homepage-polish.css";
+import "./enterprise-fixes.css";
 import PublicAiWidget from "../components/public-ai-widget";
+import EnterpriseSync from "../components/enterprise-sync";
 
 const geist = Geist({
   variable: "--font-geist-sans",
@@ -40,6 +42,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="zh-CN">
       <body className={`${geist.variable} ${geistMono.variable}`}>
         {children}
+        <EnterpriseSync />
         <PublicAiWidget />
       </body>
     </html>

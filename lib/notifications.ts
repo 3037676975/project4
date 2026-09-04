@@ -1,12 +1,24 @@
 import { decryptSecret, encryptSecret } from "./crypto";
+import { sendMail } from "./mail";
 import { getRuntime } from "./runtime";
 
 export type NotificationChannel = "wecom" | "email" | "sms" | "webhook";
 
 function hint(value: string) { return value.length > 16 ? `${value.slice(0, 10)}…${value.slice(-4)}` : "已配置"; }
+function emailHint(value: string) {
+  const [local, domain] = value.split("@");
+  if (!local || !domain) return "已绑定客服邮箱";
+  return `${local.slice(0, 2)}${local.length > 2 ? "•••" : ""}@${domain}`;
+}
 
 export function normalizeNotificationEndpoint(channel: NotificationChannel, value: string) {
-  const url = new URL(value.trim()); const host = url.hostname.toLowerCase();
+  const trimmed = value.trim();
+  if (channel === "email") {
+    const email = trimmed.toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("请输入有效的客服通知邮箱。" );
+    return email;
+  }
+  const url = new URL(trimmed); const host = url.hostname.toLowerCase();
   if (url.protocol !== "https:" || url.username || url.password || url.hash) throw new Error("通知地址必须是公网 HTTPS URL。");
   if (host === "localhost" || host.endsWith(".local") || host.endsWith(".internal") || /^\d+(?:\.\d+){3}$/.test(host) || host.includes(":")) throw new Error("通知地址不能使用本机、内网或 IP 地址。");
   if (channel === "wecom" && (host !== "qyapi.weixin.qq.com" || url.pathname !== "/cgi-bin/webhook/send" || !url.searchParams.get("key"))) throw new Error("企业微信机器人地址格式不正确。");
@@ -20,9 +32,12 @@ export async function saveNotificationConfig(input: { tenantId: string; channel:
     FROM notification_configs WHERE tenant_id = ? AND channel = ?`).bind(input.tenantId, input.channel).first<Record<string, string | null>>();
   let endpointCiphertext = current?.endpoint_ciphertext || null; let endpointIv = current?.endpoint_iv || null; let endpointHint = current?.endpoint_hint || null;
   let secretCiphertext = current?.secret_ciphertext || null; let secretIv = current?.secret_iv || null; let secretHint = current?.secret_hint || null;
-  if (input.endpoint) { const endpoint = normalizeNotificationEndpoint(input.channel, input.endpoint); const encrypted = await encryptSecret(endpoint, runtime.CONFIG_ENCRYPTION_KEY); endpointCiphertext = encrypted.ciphertext; endpointIv = encrypted.iv; endpointHint = hint(endpoint); }
-  if (input.secret) { const encrypted = await encryptSecret(input.secret.trim(), runtime.CONFIG_ENCRYPTION_KEY); secretCiphertext = encrypted.ciphertext; secretIv = encrypted.iv; secretHint = hint(input.secret.trim()); }
-  if (input.enabled && (!endpointCiphertext || !endpointIv)) throw new Error("启用通知前必须填写有效地址。");
+  if (input.endpoint) {
+    const endpoint = normalizeNotificationEndpoint(input.channel, input.endpoint); const encrypted = await encryptSecret(endpoint, runtime.CONFIG_ENCRYPTION_KEY);
+    endpointCiphertext = encrypted.ciphertext; endpointIv = encrypted.iv; endpointHint = input.channel === "email" ? emailHint(endpoint) : hint(endpoint);
+  }
+  if (input.secret && input.channel !== "email") { const encrypted = await encryptSecret(input.secret.trim(), runtime.CONFIG_ENCRYPTION_KEY); secretCiphertext = encrypted.ciphertext; secretIv = encrypted.iv; secretHint = hint(input.secret.trim()); }
+  if (input.enabled && (!endpointCiphertext || !endpointIv)) throw new Error(input.channel === "email" ? "启用通知前必须绑定客服邮箱。" : "启用通知前必须填写有效地址。");
   const now = new Date().toISOString();
   await runtime.DB.prepare(`INSERT INTO notification_configs
     (id, tenant_id, channel, endpoint_ciphertext, endpoint_iv, endpoint_hint, secret_ciphertext, secret_iv, secret_hint, events_json, status, updated_at)
@@ -65,6 +80,11 @@ async function decryptConfig(tenantId: string, channel: string) {
     secret: row.secret_ciphertext && row.secret_iv ? await decryptSecret(row.secret_ciphertext, row.secret_iv, runtime.CONFIG_ENCRYPTION_KEY) : "" };
 }
 
+function notificationText(eventType: string, entityId: string, payload: Record<string, unknown>) {
+  const title = String(payload.title || payload.subject || payload.description || payload.message || entityId).slice(0, 1800);
+  return `[KnowFlow] ${eventType}\n\n${title}`;
+}
+
 export async function flushNotificationOutbox(tenantId: string, limit = 10) {
   const runtime = getRuntime(); const now = new Date().toISOString();
   const result = await runtime.DB.prepare(`SELECT id, channel, event_type, entity_type, entity_id, payload_json, attempts
@@ -73,12 +93,23 @@ export async function flushNotificationOutbox(tenantId: string, limit = 10) {
   let sent = 0; let failed = 0;
   for (const row of result.results as Array<Record<string, unknown>>) {
     try {
-      const config = await decryptConfig(tenantId, String(row.channel)); if (!config) throw new Error("通知渠道未启用");
+      const channel = String(row.channel) as NotificationChannel;
+      const config = await decryptConfig(tenantId, channel); if (!config) throw new Error("通知渠道未启用");
       const payload = JSON.parse(String(row.payload_json)) as Record<string, unknown>;
-      const body = row.channel === "wecom" ? { msgtype: "text", text: { content: `[KnowFlow] ${row.event_type}\n${String(payload.title || payload.subject || payload.description || row.entity_id).slice(0, 1500)}` } }
-        : { event: row.event_type, entityType: row.entity_type, entityId: row.entity_id, data: payload };
-      const response = await fetch(config.endpoint, { method: "POST", headers: { "Content-Type": "application/json", ...(config.secret ? { Authorization: `Bearer ${config.secret}` } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(12000) });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (channel === "email") {
+        const text = notificationText(String(row.event_type), String(row.entity_id), payload);
+        await sendMail({
+          to: config.endpoint,
+          subject: `【KnowFlow 客服通知】${String(row.event_type)}`,
+          text,
+          html: `<div style="font-family:Arial,'Microsoft YaHei',sans-serif;padding:24px"><h2>KnowFlow 客服通知</h2><p><b>${String(row.event_type)}</b></p><p>${text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br/>")}</p></div>`,
+        });
+      } else {
+        const body = channel === "wecom" ? { msgtype: "text", text: { content: notificationText(String(row.event_type), String(row.entity_id), payload) } }
+          : { event: row.event_type, entityType: row.entity_type, entityId: row.entity_id, data: payload };
+        const response = await fetch(config.endpoint, { method: "POST", headers: { "Content-Type": "application/json", ...(config.secret ? { Authorization: `Bearer ${config.secret}` } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(12000) });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      }
       await runtime.DB.prepare("UPDATE notification_outbox SET status = 'sent', attempts = attempts + 1, sent_at = ?, last_error = NULL, updated_at = ? WHERE id = ?").bind(now, now, row.id).run(); sent += 1;
     } catch (error) {
       const attempts = Number(row.attempts || 0) + 1; const status = attempts >= 5 ? "failed" : "retry";

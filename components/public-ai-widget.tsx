@@ -2,8 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const quickQuestions = ["了解套餐", "预约演示", "RAG 怎么用", "支持私有化吗"];
-
 type Message = {
   id: string;
   role: "ai" | "user";
@@ -11,6 +9,24 @@ type Message = {
   meta?: string;
   error?: boolean;
 };
+
+type WidgetConfig = {
+  enabled: boolean;
+  autoOpen: boolean;
+  title: string;
+  welcomeMessage: string;
+  quickQuestions: string[];
+};
+
+const DEFAULT_CONFIG: WidgetConfig = {
+  enabled: true,
+  autoOpen: true,
+  title: "KnowFlow 智能客服",
+  welcomeMessage: "你好 👋 我是 KnowFlow AI 客服。直接问我产品、套餐、RAG、部署或人工客服都可以。",
+  quickQuestions: ["了解套餐", "预约演示", "RAG 怎么用", "支持私有化吗"],
+};
+
+const DISMISSED_KEY = "knowflow_widget_dismissed";
 
 function makeId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
@@ -56,32 +72,66 @@ const agentAvatarStyle = {
 };
 
 export default function PublicAiWidget() {
-  const [open, setOpen] = useState(true);
+  const [config, setConfig] = useState(DEFAULT_CONFIG);
+  const [ready, setReady] = useState(false);
+  const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"ai" | "human">("ai");
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [visitorId, setVisitorId] = useState("visitor_web_000000000000");
   const [conversationId, setConversationId] = useState("");
   const [conversationToken, setConversationToken] = useState("");
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "ai",
-      text: "你好 👋 我是 KnowFlow AI 客服。直接问我产品、套餐、RAG、部署或人工客服都可以。",
-      meta: "AI 助手在线 · 官网客服 v5",
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const messageBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setOpen(true);
+    let cancelled = false;
     setVisitorId(getVisitorId());
+
+    async function initialize() {
+      let next = DEFAULT_CONFIG;
+      try {
+        const response = await fetch("/api/public/homepage-widget-config", { cache: "no-store" });
+        if (response.ok) {
+          const data = await response.json() as Partial<WidgetConfig>;
+          next = {
+            enabled: data.enabled !== false,
+            autoOpen: data.autoOpen !== false,
+            title: typeof data.title === "string" && data.title.trim() ? data.title : DEFAULT_CONFIG.title,
+            welcomeMessage: typeof data.welcomeMessage === "string" && data.welcomeMessage.trim() ? data.welcomeMessage : DEFAULT_CONFIG.welcomeMessage,
+            quickQuestions: Array.isArray(data.quickQuestions) && data.quickQuestions.length ? data.quickQuestions.slice(0, 8) : DEFAULT_CONFIG.quickQuestions,
+          };
+        }
+      } catch {
+        // Public chat must remain available even if the settings endpoint is temporarily unavailable.
+      }
+      if (cancelled) return;
+      setConfig(next);
+      setMessages([{ id: "welcome", role: "ai", text: next.welcomeMessage, meta: "AI 助手在线 · 知识库优先" }]);
+      let dismissed = false;
+      try { dismissed = window.localStorage.getItem(DISMISSED_KEY) === "1"; } catch { /* storage may be blocked */ }
+      setOpen(next.enabled && next.autoOpen && !dismissed);
+      setReady(true);
+    }
+
+    void initialize();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     const box = messageBoxRef.current;
     if (box) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
   }, [messages, loading, open]);
+
+  function closeWidget() {
+    try { window.localStorage.setItem(DISMISSED_KEY, "1"); } catch { /* ignore */ }
+    setOpen(false);
+  }
+
+  function reopenWidget() {
+    try { window.localStorage.removeItem(DISMISSED_KEY); } catch { /* ignore */ }
+    setOpen(true);
+  }
 
   async function sendMessage(value?: string) {
     const text = (value ?? input).trim();
@@ -101,7 +151,6 @@ export default function PublicAiWidget() {
         signal: controller.signal,
         body: JSON.stringify({ message: text, visitorId, conversationId, conversationToken, mode }),
       });
-
       const data = await response.json().catch(() => ({})) as {
         answer?: string;
         error?: string;
@@ -110,11 +159,9 @@ export default function PublicAiWidget() {
         fallback?: boolean;
         sources?: Array<{ document?: string }>;
       };
-
       if (data.conversationId) setConversationId(data.conversationId);
       if (data.conversationToken) setConversationToken(data.conversationToken);
       if (!response.ok && !data.answer) throw new Error(data.error || `服务请求失败（${response.status}）`);
-
       const sourceText = Array.isArray(data.sources) && data.sources.length ? ` · ${data.sources.length} 个知识来源` : "";
       setMessages((items) => [...items, {
         id: makeId("ai"),
@@ -149,11 +196,12 @@ export default function PublicAiWidget() {
     }
   }
 
+  if (!ready || !config.enabled) return null;
+
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} aria-label="重新打开 KnowFlow 客服" style={{ position: "fixed", right: 18, bottom: 18, zIndex: 1000, display: "flex", alignItems: "center", gap: 10, border: "1px solid rgba(99,102,241,.16)", background: "rgba(255,255,255,.97)", boxShadow: "0 18px 50px rgba(15,23,42,.16)", borderRadius: 999, padding: "8px 14px 8px 8px", cursor: "pointer", color: "#0f172a", backdropFilter: "blur(18px)" }}>
-        <img src="/brand/support-agent-v3.jpg" alt="真人客服" style={{ ...agentAvatarStyle, width: 38, height: 38, borderRadius: 12, border: "1px solid #fff" }} />
-        <span style={{ textAlign: "left", lineHeight: 1.1 }}><b style={{ display: "block", fontSize: 13 }}>AI 客服</b><small style={{ color: "#16a34a", fontSize: 11 }}>● 在线</small></span>
+      <button onClick={reopenWidget} aria-label="重新打开 KnowFlow 客服" style={{ position: "fixed", right: 18, bottom: 18, zIndex: 1000, width: 50, height: 50, display: "grid", placeItems: "center", border: "2px solid #fff", background: "#fff", boxShadow: "0 14px 38px rgba(15,23,42,.18)", borderRadius: 999, padding: 0, cursor: "pointer", overflow: "hidden" }} title="打开 AI 客服">
+        <img src="/brand/support-agent-v3.jpg" alt="真人客服" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 20%" }} />
       </button>
     );
   }
@@ -164,8 +212,8 @@ export default function PublicAiWidget() {
         <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 85% -20%, rgba(255,255,255,.25), transparent 42%)", pointerEvents: "none" }} />
         <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 12 }}>
           <img src="/brand/support-agent-v3.jpg" alt="KnowFlow 真人客服" style={agentAvatarStyle} />
-          <div style={{ flex: 1 }}><div style={{ fontWeight: 760, fontSize: 15 }}>KnowFlow 智能客服</div><div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 12, color: "rgba(255,255,255,.78)" }}><span style={{ width: 7, height: 7, borderRadius: 999, background: mode === "ai" ? "#4ade80" : "#fbbf24" }} />{mode === "ai" ? "AI 在线 · 知识库优先" : "人工接待模式"}</div></div>
-          <button onClick={() => setOpen(false)} aria-label="关闭客服" style={{ width: 34, height: 34, borderRadius: 12, border: "1px solid rgba(255,255,255,.16)", background: "rgba(255,255,255,.08)", color: "white", fontSize: 20, cursor: "pointer" }}>×</button>
+          <div style={{ flex: 1 }}><div style={{ fontWeight: 760, fontSize: 15 }}>{config.title}</div><div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 12, color: "rgba(255,255,255,.78)" }}><span style={{ width: 7, height: 7, borderRadius: 999, background: mode === "ai" ? "#4ade80" : "#fbbf24" }} />{mode === "ai" ? "AI 在线 · 知识库优先" : "人工接待模式"}</div></div>
+          <button onClick={closeWidget} aria-label="关闭客服" style={{ width: 34, height: 34, borderRadius: 12, border: "1px solid rgba(255,255,255,.16)", background: "rgba(255,255,255,.08)", color: "white", fontSize: 20, cursor: "pointer" }}>×</button>
         </div>
         <div style={{ position: "relative", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 13, padding: 4, borderRadius: 14, background: "rgba(255,255,255,.09)" }}>
           <button onClick={() => switchMode("ai")} style={{ border: 0, borderRadius: 10, padding: "8px 10px", cursor: "pointer", fontWeight: 650, fontSize: 12, color: mode === "ai" ? "#312e81" : "rgba(255,255,255,.75)", background: mode === "ai" ? "white" : "transparent" }}>✦ AI 接待</button>
@@ -179,12 +227,12 @@ export default function PublicAiWidget() {
       </div>
 
       <div style={{ padding: "10px 12px 12px", borderTop: "1px solid #eef2f7", background: "#fff" }}>
-        <div style={{ display: "flex", gap: 7, overflowX: "auto", paddingBottom: 9 }}>{quickQuestions.map((item) => <button key={item} onClick={() => void sendMessage(item)} disabled={loading} style={{ flex: "0 0 auto", borderRadius: 999, padding: "7px 10px", border: "1px solid #e0e7ff", background: "#f8faff", color: "#4f46e5", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>{item}</button>)}</div>
+        <div style={{ display: "flex", gap: 7, overflowX: "auto", paddingBottom: 9 }}>{config.quickQuestions.map((item) => <button key={item} onClick={() => void sendMessage(item)} disabled={loading} style={{ flex: "0 0 auto", borderRadius: 999, padding: "7px 10px", border: "1px solid #e0e7ff", background: "#f8faff", color: "#4f46e5", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>{item}</button>)}</div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: 7, borderRadius: 17, border: "1px solid #dbe3ee", background: "#fff", boxShadow: "0 6px 18px rgba(15,23,42,.04)" }}>
           <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} rows={1} placeholder="输入你的问题…" style={{ flex: 1, resize: "none", border: 0, outline: 0, padding: "8px 7px", font: "inherit", fontSize: 13, lineHeight: 1.45, color: "#0f172a", background: "transparent" }} />
           <button onClick={() => void sendMessage()} disabled={loading || !input.trim()} aria-label="发送消息" style={{ width: 38, height: 38, borderRadius: 13, border: 0, background: loading || !input.trim() ? "#cbd5e1" : "linear-gradient(135deg,#4f46e5,#7c3aed)", color: "white", fontSize: 18, cursor: loading || !input.trim() ? "default" : "pointer" }}>↑</button>
         </div>
-        <div style={{ marginTop: 7, textAlign: "center", color: "#94a3b8", fontSize: 10.5 }}>Enter 发送 · Shift + Enter 换行 · v5</div>
+        <div style={{ marginTop: 7, textAlign: "center", color: "#94a3b8", fontSize: 10.5 }}>Enter 发送 · Shift + Enter 换行</div>
       </div>
     </div>
   );
