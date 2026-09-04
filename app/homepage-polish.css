@@ -31,3 +31,11 @@
   object-position: center 24% !important;
   background: #f5f7ff;
 }
+
+/* The real bottom-right customer-service widget also uses the human agent portrait. */
+button[aria-label="重新打开 KnowFlow 客服"] > span:first-child,
+div:has(> button[aria-label="关闭客服"]) > div:first-child {
+  background: #f5f7ff url("/brand/support-agent.svg") center / cover no-repeat !important;
+  color: transparent !important;
+  overflow: hidden;
+}
