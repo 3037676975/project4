@@ -63,7 +63,7 @@ export default function PlatformProviderSettings() {
         compatible: { provider: "compatible", baseUrl: "https://ocr.example.com", model: "parse", region: null },
         openai: { provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", region: null },
         baidu: { provider: "baidu", baseUrl: "https://aip.baidubce.com", model: "general_basic", secondaryModel: "table", region: null },
-        tencent: { provider: "tencent", baseUrl: "https://ocr.tencentcloudapi.com", model: "GeneralBasicOCR", secondaryModel: "RecognizeTableOCR", region: "ap-guangzhou" },
+        tencent: { provider: "tencent", baseUrl: "https://ocr.tencentcloudapi.com", model: "GeneralAccurateOCR", secondaryModel: "RecognizeTableAccurateOCR", region: "ap-guangzhou" },
       };
       setOcr({ ...ocr, ...presets[provider], configured: false, keyHint: null, credentialIdHint: null });
     }
@@ -117,22 +117,20 @@ export default function PlatformProviderSettings() {
         </select>
       ) : kind === "ocr" && config.provider === "tencent" ? (
         <select value={config.model} onChange={(event) => setConfig({ ...config, model: event.target.value })}>
-          <option value="GeneralBasicOCR">图片 / 扫描 PDF：通用印刷体识别</option>
-          <option value="GeneralAccurateOCR">图片 / 扫描 PDF：通用文字识别高精度版</option>
-          <option value="GeneralFastOCR">图片 / 扫描 PDF：通用印刷体高速版</option>
-          <option value="GeneralHandwritingOCR">仅图片：通用手写体识别</option>
+          <option value="GeneralAccurateOCR">推荐：通用文字识别高精度版（图片 / PDF / 手写体更强）</option>
+          <option value="GeneralBasicOCR">通用印刷体识别（图片 / PDF）</option>
         </select>
       ) : (
         <input value={config.model} onChange={(event) => setConfig({ ...config, model: event.target.value })}/>
       )}
       {kind === "ocr" && config.provider === "baidu" && <><label>表格识别接口<span>结构化保留单元格行列，支持表格图片和表格 PDF</span></label><select value={config.secondaryModel || "table"} onChange={(event) => setConfig({ ...config, secondaryModel: event.target.value })}><option value="table">表格文字识别 V2（table）</option></select></>}
-      {kind === "ocr" && config.provider === "tencent" && <><label>表格识别接口<span>结构化保留单元格行列，支持表格图片和表格 PDF</span></label><select value={config.secondaryModel || "RecognizeTableOCR"} onChange={(event) => setConfig({ ...config, secondaryModel: event.target.value })}><option value="RecognizeTableOCR">表格识别 V2（RecognizeTableOCR）</option></select></>}
+      {kind === "ocr" && config.provider === "tencent" && <><label>表格识别接口<span>使用腾讯云当前表格识别 V3，支持图片和 PDF，识别复杂表格效果优于 V2</span></label><select value={config.secondaryModel || "RecognizeTableAccurateOCR"} onChange={(event) => setConfig({ ...config, secondaryModel: event.target.value })}><option value="RecognizeTableAccurateOCR">表格识别 V3（RecognizeTableAccurateOCR）</option></select></>}
       {kind === "embedding" && <><label>向量维度<span>{config.provider === "infinity" && config.model === "BAAI/bge-m3" ? "BGE-M3 固定为 1024；变更后全部企业文档需要重建索引" : "必须与服务实际输出完全一致"}</span></label><input type="number" min="256" max="4096" value={config.dimensions || 1024} onChange={(event) => setConfig({ ...config, dimensions: Number(event.target.value) })}/></>}
       {kind === "rerank" && <><div className="field-grid"><div><label>候选数量<span>向量检索先召回多少段</span></label><input type="number" min="2" max="50" value={config.candidateCount || 12} onChange={(event) => setConfig({ ...config, candidateCount: Number(event.target.value) })}/></div><div><label>最终保留<span>重排后交给生成模型</span></label><input type="number" min="1" max="8" value={config.topN || 3} onChange={(event) => setConfig({ ...config, topN: Number(event.target.value) })}/></div></div><label className="reuse-secret"><input type="checkbox" checked={reusingEmbeddingKey} onChange={(event) => { setConfig({ ...config, reuseEmbeddingKey: event.target.checked }); clearSecrets("rerank"); }}/><span><b>复用 Embedding 服务 Token</b><small>Embedding 与 Rerank 使用同一 Infinity 或硅基流动主机时推荐开启。</small></span></label></>}
       {kind === "ocr" && config.provider === "tencent" && <><label>地域 Region</label><input value={config.region || "ap-guangzhou"} onChange={(event) => setConfig({ ...config, region: event.target.value })}/></>}
       {cloudPair && <><label>{credentialLabel}<span>{config.credentialIdHint ? `当前：${config.credentialIdHint}；留空保留` : "加密保存，浏览器无法再次读取"}</span></label><div className="secret-field"><input type="password" autoComplete="new-password" value={secrets[kind].credentialId} onChange={(event) => setSecret(kind, "credentialId", event.target.value)} placeholder={config.credentialIdHint ? "留空保留现有凭据" : credentialLabel}/><span>加密</span></div></>}
       <label>{secretLabel}<span>{reusingEmbeddingKey ? `将复用 Embedding 密钥${config.keyHint ? `：${config.keyHint}` : ""}` : config.configured ? `当前：${config.keyHint}；留空保留现有密钥` : "AES-256-GCM 加密保存，浏览器无法再次读取"}</span></label><div className="secret-field"><input type="password" autoComplete="new-password" disabled={reusingEmbeddingKey} value={secrets[kind].apiKey} onChange={(event) => setSecret(kind, "apiKey", event.target.value)} placeholder={reusingEmbeddingKey ? "自动复用，无需重复填写" : config.configured ? "留空保留现有密钥" : selfHosted ? "至少 12 位随机 Token" : "填写服务商密钥"}/><span>{reusingEmbeddingKey ? "复用" : "加密"}</span></div>
-      {kind === "ocr" && <p className="provider-help">现已支持三种导入模式：普通图片 OCR、逐页扫描 PDF OCR、表格图片/PDF 结构化 OCR。原生 Excel 直接解析单元格，不消耗 OCR 次数；Word、Excel、PPT 建议使用 Docling 或 OpenAI 文档解析。</p>}
+      {kind === "ocr" && <p className="provider-help">现已支持三种导入模式：普通图片 OCR、逐页扫描 PDF OCR、表格图片/PDF 结构化 OCR。腾讯云已切换到 GeneralAccurateOCR / GeneralBasicOCR 与表格识别 V3；旧高速、旧手写体和表格 V2 配置会自动兼容迁移。原生 Excel 直接解析单元格，不消耗 OCR 次数。</p>}
       <div className="form-actions"><button className="primary-button fit" disabled={busy === `save-${kind}`}>{busy === `save-${kind}` ? "保存中…" : "保存平台配置"}</button><button className="secondary-button" type="button" onClick={() => testProvider(kind)} disabled={!config.configured || busy === `test-${kind}`}>{busy === `test-${kind}` ? "测试中…" : "测试连接"}</button></div>
     </form></section>;
   }
