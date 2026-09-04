@@ -73,9 +73,15 @@ function serializeSettings(
     const reusedEntry = row?.reuse_api_key_from === "embedding" ? rows.get("embedding") : null;
     const effectiveKeyHint = row?.api_key_hint ?? reusedEntry?.row.api_key_hint ?? null;
     const provider = String(row?.provider ?? fallback.provider);
+    const rawModel = String(row?.model ?? fallback.model);
+    const rawSecondaryModel = row?.secondary_model ?? fallback.secondaryModel;
+    const model = provider === "tencent" && ["GeneralFastOCR", "GeneralHandwritingOCR"].includes(rawModel)
+      ? "GeneralAccurateOCR" : rawModel;
+    const secondaryModel = provider === "tencent" && rawSecondaryModel === "RecognizeTableOCR"
+      ? "RecognizeTableAccurateOCR" : rawSecondaryModel;
     return {
-      kind, provider, baseUrl: row?.base_url ?? fallback.baseUrl, model: row?.model ?? fallback.model,
-      secondaryModel: row?.secondary_model ?? fallback.secondaryModel, dimensions: row?.dimensions ?? fallback.dimensions,
+      kind, provider, baseUrl: row?.base_url ?? fallback.baseUrl, model,
+      secondaryModel, dimensions: row?.dimensions ?? fallback.dimensions,
       configured: needsCredentialId(kind, provider) ? Boolean(effectiveKeyHint && row?.credential_id_hint) : Boolean(effectiveKeyHint),
       keyHint: includeHints ? effectiveKeyHint : null,
       credentialIdHint: includeHints ? row?.credential_id_hint ?? null : null,
@@ -122,11 +128,11 @@ export async function POST(request: Request) {
     if (kind === "embedding" && provider === "siliconflow" && model !== "BAAI/bge-m3") return Response.json({ error: "硅基流动 Embedding 固定使用 BAAI/bge-m3。" }, { status: 400 });
     if (kind === "rerank" && provider === "siliconflow" && model !== "BAAI/bge-reranker-v2-m3") return Response.json({ error: "硅基流动 Rerank 固定使用 BAAI/bge-reranker-v2-m3。" }, { status: 400 });
     if (kind === "ocr" && provider === "baidu" && !["general_basic", "accurate_basic"].includes(model)) return Response.json({ error: "百度云 OCR 支持 general_basic 或 accurate_basic。" }, { status: 400 });
-    if (kind === "ocr" && provider === "tencent" && !["GeneralBasicOCR", "GeneralAccurateOCR", "GeneralFastOCR", "GeneralHandwritingOCR"].includes(model)) return Response.json({ error: "腾讯云 OCR 接口不在允许列表中。" }, { status: 400 });
+    if (kind === "ocr" && provider === "tencent" && !["GeneralBasicOCR", "GeneralAccurateOCR"].includes(model)) return Response.json({ error: "腾讯云 OCR 当前仅使用 GeneralBasicOCR 或 GeneralAccurateOCR。" }, { status: 400 });
     const secondaryModel = kind === "ocr" && provider === "baidu" ? (typeof payload.secondaryModel === "string" && payload.secondaryModel ? payload.secondaryModel : "table")
-      : kind === "ocr" && provider === "tencent" ? (typeof payload.secondaryModel === "string" && payload.secondaryModel ? payload.secondaryModel : "RecognizeTableOCR") : null;
+      : kind === "ocr" && provider === "tencent" ? (typeof payload.secondaryModel === "string" && payload.secondaryModel ? payload.secondaryModel : "RecognizeTableAccurateOCR") : null;
     if (kind === "ocr" && provider === "baidu" && secondaryModel !== "table") return Response.json({ error: "百度表格识别接口必须使用 table。" }, { status: 400 });
-    if (kind === "ocr" && provider === "tencent" && secondaryModel !== "RecognizeTableOCR") return Response.json({ error: "腾讯云表格识别接口必须使用 RecognizeTableOCR。" }, { status: 400 });
+    if (kind === "ocr" && provider === "tencent" && secondaryModel !== "RecognizeTableAccurateOCR") return Response.json({ error: "腾讯云表格识别接口必须使用 RecognizeTableAccurateOCR（V3）。" }, { status: 400 });
     let baseUrl: string;
     try { baseUrl = normalizeBaseUrl(kind, provider, String(payload.baseUrl || "")); }
     catch (error) { return Response.json({ error: error instanceof Error ? error.message : "API 地址无效。" }, { status: 400 }); }
