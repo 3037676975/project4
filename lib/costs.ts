@@ -23,7 +23,7 @@ export async function recordExternalUsage(input: { tenantId: string; model: stri
   const costMicros = await calculateModelCost({ tenantId: input.tenantId, model: input.model, promptTokens, completionTokens });
   await getRuntime().DB.prepare(`INSERT INTO usage_records
     (id, tenant_id, request_id, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, source_count, credits, cost_micros, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'success', ?)`
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'success', ?)`)
     .bind(crypto.randomUUID(), input.tenantId, `svc_${crypto.randomUUID()}`, input.model, promptTokens, completionTokens, promptTokens + completionTokens,
       Math.max(0, Math.round(input.latencyMs || 0)), Math.max(0, Math.round(input.sourceCount || 0)), costMicros, new Date().toISOString()).run();
   return costMicros;
