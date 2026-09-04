@@ -19,6 +19,21 @@ const PLAN_SEEDS = [
   ["plan_business", "business", "企业版", 99900, 100000, 60000000, 10737418240, 1200000, 50, 100, 20000, 3000, '["rag","openai_api","sse","ocr","rerank","audit","priority","web_widget","lead_capture","handoff","commercial_dashboard"]'],
 ] as const;
 
+type PlatformAssistantDefaults = {
+  name: string;
+  model_alias: string;
+  system_prompt: string;
+  temperature_milli: number;
+  top_k: number;
+  brand_name: string;
+  welcome_message: string;
+  theme_color: string;
+  lead_capture_enabled: number;
+  handoff_enabled: number;
+  handoff_label: string;
+  suggested_questions_json: string;
+};
+
 async function stableId(prefix: string, value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value.toLowerCase()));
   const hex = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -41,8 +56,36 @@ export async function ensurePlanSeeds() {
   `).bind(...plan, now)));
 }
 
+async function platformProviderCount() {
+  const row = await getRuntime().DB.prepare("SELECT COUNT(*) AS total FROM platform_provider_configs WHERE status = 'active'")
+    .first<{ total: number }>();
+  return Number(row?.total || 0);
+}
+
+async function loadPlatformAssistantDefaults() {
+  return getRuntime().DB.prepare(`
+    SELECT a.name, a.model_alias, a.system_prompt, a.temperature_milli, a.top_k,
+      a.brand_name, a.welcome_message, a.theme_color, a.lead_capture_enabled,
+      a.handoff_enabled, a.handoff_label, a.suggested_questions_json
+    FROM platform_admins pa
+    JOIN tenant_members tm
+      ON tm.status = 'active'
+      AND ((pa.account_id IS NOT NULL AND tm.account_id = pa.account_id) OR tm.email = pa.email)
+    JOIN tenants t ON t.id = tm.tenant_id AND t.status = 'active'
+    JOIN assistants a ON a.tenant_id = tm.tenant_id AND a.status = 'active'
+    WHERE pa.role = 'super_admin' AND pa.status = 'active' AND tm.role IN ('owner', 'admin')
+    ORDER BY pa.created_at ASC, CASE tm.role WHEN 'owner' THEN 0 ELSE 1 END, a.updated_at DESC
+    LIMIT 1
+  `).first<PlatformAssistantDefaults>();
+}
+
 async function seedLocalProviders(tenantId: string) {
-  const runtime = getRuntime(); if (runtime.APP_ENV !== "local" || !runtime.CONFIG_ENCRYPTION_KEY) return;
+  const runtime = getRuntime();
+  if (runtime.APP_ENV !== "local" || !runtime.CONFIG_ENCRYPTION_KEY) return;
+  // Once the super administrator has configured platform model services, every
+  // enterprise inherits those settings at runtime. Do not create a second,
+  // tenant-specific set of credentials that can drift away from the platform.
+  if (await platformProviderCount()) return;
   const specs = [
     runtime.INFINITY_API_KEY ? { kind: "embedding", provider: "infinity", baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-m3", dimensions: 1024, key: runtime.INFINITY_API_KEY } : null,
     runtime.INFINITY_API_KEY ? { kind: "rerank", provider: "infinity", baseUrl: "http://embedding:7997/v1", model: "BAAI/bge-reranker-v2-m3", dimensions: null, key: runtime.INFINITY_API_KEY } : null,
@@ -98,6 +141,21 @@ export async function createTenantWorkspace(input: { account: AccountSession; co
   const kbId = `kb_${tenantId.slice(4)}`;
   const assistantId = `asst_${tenantId.slice(4)}`;
   const publicId = `pub_${crypto.randomUUID().replaceAll("-", "")}`;
+  const platformDefaults = await loadPlatformAssistantDefaults();
+  const assistantDefaults = {
+    name: platformDefaults?.name || "知识库客服",
+    modelAlias: platformDefaults?.model_alias || "kb-architect-v1",
+    systemPrompt: platformDefaults?.system_prompt || "你是企业产品与售后客服。严格依据检索到的资料回答；资料不足时明确说明并建议转人工；优先给出结论和可执行步骤，不编造价格、库存或保修承诺。",
+    temperatureMilli: Number(platformDefaults?.temperature_milli ?? 200),
+    topK: Number(platformDefaults?.top_k ?? 5),
+    brandName: platformDefaults?.brand_name || "企业售后助手",
+    welcomeMessage: platformDefaults?.welcome_message || "您好，我是企业售后助手。您可以咨询产品选型、使用方法、故障处理和保修政策。",
+    themeColor: platformDefaults?.theme_color || "#6d4aff",
+    leadCaptureEnabled: Number(platformDefaults?.lead_capture_enabled ?? 1),
+    handoffEnabled: Number(platformDefaults?.handoff_enabled ?? 1),
+    handoffLabel: platformDefaults?.handoff_label || "转人工服务",
+    suggestedQuestionsJson: platformDefaults?.suggested_questions_json || '["产品如何选型？","设备出现故障怎么办？","保修政策是什么？"]',
+  };
   await runtime.DB.batch([
     runtime.DB.prepare("INSERT OR IGNORE INTO tenants (id, name, slug, status, credits_balance, company_name, billing_email, onboarding_completed, created_at, updated_at) VALUES (?, ?, ?, 'active', 10000, ?, ?, 0, ?, ?)").bind(tenantId, tenantName, `workspace-${suffix}`, companyName, input.account.email, now, now),
     runtime.DB.prepare("INSERT OR IGNORE INTO tenant_members (id, tenant_id, account_id, email, display_name, role, status, active_knowledge_base_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'owner', 'active', ?, ?, ?)").bind(memberId, tenantId, input.account.id, input.account.email, input.account.displayName, kbId, now, now),
@@ -105,22 +163,30 @@ export async function createTenantWorkspace(input: { account: AccountSession; co
     runtime.DB.prepare("INSERT OR IGNORE INTO knowledge_bases (id, tenant_id, name, description, status, is_default, position, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', 1, 0, ?, ?)").bind(kbId, tenantId, "默认知识库", "企业产品与客服资料", now, now),
     runtime.DB.prepare("INSERT OR IGNORE INTO knowledge_categories (id, tenant_id, knowledge_base_id, name, position, is_system, created_at, updated_at) VALUES (?, ?, ?, '未分类', 0, 1, ?, ?)").bind(`cat_default_${kbId}`, tenantId, kbId, now, now),
     runtime.DB.prepare(`INSERT OR IGNORE INTO assistants
-      (id, tenant_id, knowledge_base_id, slug, name, model_alias, system_prompt, temperature_milli, top_k, status, version, public_id, brand_name, welcome_message, suggested_questions_json, created_at, updated_at)
-      VALUES (?, ?, ?, 'knowledge-agent', '知识库客服', 'kb-architect-v1', ?, 200, 5, 'active', 1, ?, '企业售后助手', ?, ?, ?, ?)`
-    ).bind(assistantId, tenantId, kbId, "你是企业产品与售后客服。严格依据检索到的资料回答；资料不足时明确说明并建议转人工；优先给出结论和可执行步骤，不编造价格、库存或保修承诺。", publicId, "您好，我是企业售后助手。您可以咨询产品选型、使用方法、故障处理和保修政策。", '["产品如何选型？","设备出现故障怎么办？","保修政策是什么？"]', now, now),
+      (id, tenant_id, knowledge_base_id, slug, name, model_alias, system_prompt, temperature_milli, top_k, status, version, public_id,
+       brand_name, welcome_message, theme_color, lead_capture_enabled, handoff_enabled, handoff_label, suggested_questions_json, created_at, updated_at)
+      VALUES (?, ?, ?, 'knowledge-agent', ?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(assistantId, tenantId, kbId, assistantDefaults.name, assistantDefaults.modelAlias, assistantDefaults.systemPrompt,
+      assistantDefaults.temperatureMilli, assistantDefaults.topK, publicId, assistantDefaults.brandName, assistantDefaults.welcomeMessage,
+      assistantDefaults.themeColor, assistantDefaults.leadCaptureEnabled, assistantDefaults.handoffEnabled, assistantDefaults.handoffLabel,
+      assistantDefaults.suggestedQuestionsJson, now, now),
     runtime.DB.prepare("INSERT OR IGNORE INTO credit_ledger (id, tenant_id, amount, balance_after, reason, reference_id, created_at) VALUES (?, ?, 10000, 10000, 'signup_grant', ?, ?)").bind(`credit_${tenantId.slice(4)}`, tenantId, `sub_${tenantId.slice(4)}`, now),
   ]);
 
-  // Adopt the previous single-workspace data for the first authenticated owner.
-  await runtime.DB.prepare("UPDATE knowledge_documents SET tenant_id = ?, knowledge_base_id = ? WHERE tenant_id IS NULL").bind(tenantId, kbId).run();
-  const legacyProvider = await runtime.DB.prepare("SELECT * FROM provider_configs WHERE id = 'deepseek'").first<Record<string, string | null>>();
-  if (legacyProvider) {
-    await runtime.DB.prepare(`INSERT OR IGNORE INTO tenant_provider_configs
-      (id, tenant_id, kind, provider, base_url, model, api_key_ciphertext, api_key_iv, api_key_hint, status, updated_at)
-      VALUES (?, ?, 'generation', 'deepseek', ?, ?, ?, ?, ?, 'active', ?)`
-    ).bind(`prov_gen_${tenantId.slice(4)}`, tenantId, legacyProvider.base_url, legacyProvider.model, legacyProvider.api_key_ciphertext, legacyProvider.api_key_iv, legacyProvider.api_key_hint, legacyProvider.updated_at || now).run();
+  // Adopt legacy credentials only while the platform owner has not configured
+  // platform-wide providers. Once platform services exist, new enterprises use
+  // the super administrator's configuration automatically.
+  if (!(await platformProviderCount())) {
+    await runtime.DB.prepare("UPDATE knowledge_documents SET tenant_id = ?, knowledge_base_id = ? WHERE tenant_id IS NULL").bind(tenantId, kbId).run();
+    const legacyProvider = await runtime.DB.prepare("SELECT * FROM provider_configs WHERE id = 'deepseek'").first<Record<string, string | null>>();
+    if (legacyProvider) {
+      await runtime.DB.prepare(`INSERT OR IGNORE INTO tenant_provider_configs
+        (id, tenant_id, kind, provider, base_url, model, api_key_ciphertext, api_key_iv, api_key_hint, status, updated_at)
+        VALUES (?, ?, 'generation', 'deepseek', ?, ?, ?, ?, ?, 'active', ?)`
+      ).bind(`prov_gen_${tenantId.slice(4)}`, tenantId, legacyProvider.base_url, legacyProvider.model, legacyProvider.api_key_ciphertext, legacyProvider.api_key_iv, legacyProvider.api_key_hint, legacyProvider.updated_at || now).run();
+    }
+    await seedLocalProviders(tenantId);
   }
-  await seedLocalProviders(tenantId);
   return tenantId;
 }
 
@@ -137,7 +203,7 @@ export async function createTenantInvitation(input: { context: TenantContext; em
     (id, tenant_id, email, role, token_hash, created_by_member_id, status, expires_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
     .bind(id, input.context.tenantId, input.email, input.role, tokenHash, input.context.memberId, expiresAt, now.toISOString()).run();
-  return { id, email: input.email, role: input.role, status: "pending", expiresAt, inviteUrl: `${input.origin.replace(/\/$/, "")}/invite/${token}` };
+  return { id, email: input.email, role: input.context.role, status: "pending", expiresAt, inviteUrl: `${input.origin.replace(/\/$/, "")}/invite/${token}` };
 }
 
 export function requireRole(context: TenantContext, allowed: TenantContext["role"][]) {
