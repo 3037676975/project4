@@ -8,10 +8,12 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from paddleocr import PaddleOCR
 
-app = FastAPI(title="KnowFlow PaddleOCR", version="1.0.0")
+app = FastAPI(title="KnowFlow PaddleOCR", version="1.1.0")
 
 OCR_API_KEY = os.getenv("OCR_API_KEY", "").strip()
 OCR_MODEL_VERSION = os.getenv("OCR_MODEL_VERSION", "PP-OCRv6").strip() or "PP-OCRv6"
+OCR_DET_MODEL = os.getenv("OCR_DET_MODEL", "PP-OCRv6_small_det").strip() or "PP-OCRv6_small_det"
+OCR_REC_MODEL = os.getenv("OCR_REC_MODEL", "PP-OCRv6_small_rec").strip() or "PP-OCRv6_small_rec"
 MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", str(12 * 1024 * 1024)))
 MAX_CONCURRENCY = max(1, int(os.getenv("MAX_CONCURRENCY", "1")))
 SUPPORTED_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
@@ -27,11 +29,13 @@ def require_auth(authorization: str | None) -> None:
 
 @lru_cache(maxsize=1)
 def get_ocr() -> PaddleOCR:
-    # PP-OCRv6 is the current open-source OCR line. The three optional
-    # preprocessing models are disabled to keep CPU/RAM usage predictable on
-    # a normal self-hosted SaaS server; text detection + recognition remain on.
+    # PP-OCRv6 small keeps the self-hosted CPU/RAM footprint much lower than
+    # the medium/server tier while preserving substantially better accuracy
+    # than the tiny tier. Optional preprocessing models stay disabled.
     return PaddleOCR(
         ocr_version=OCR_MODEL_VERSION,
+        text_detection_model_name=OCR_DET_MODEL,
+        text_recognition_model_name=OCR_REC_MODEL,
         device="cpu",
         use_doc_orientation_classify=False,
         use_doc_unwarping=False,
@@ -62,15 +66,16 @@ def recognize(path: str) -> tuple[str, int]:
         if not isinstance(texts, list):
             texts = []
         page_text = "\n".join(str(item).strip() for item in texts if str(item).strip()).strip()
-        if page_text:
-            pages.append(page_text)
-        else:
-            pages.append("")
+        pages.append(page_text)
     if not pages:
         return "", 0
     if len(pages) == 1:
         return pages[0], 1
-    markdown = "\n\n".join(f"## 第 {index + 1} 页\n\n{text}" for index, text in enumerate(pages) if text).strip()
+    markdown = "\n\n".join(
+        f"## 第 {index + 1} 页\n\n{text}"
+        for index, text in enumerate(pages)
+        if text
+    ).strip()
     return markdown, len(pages)
 
 
@@ -80,6 +85,8 @@ async def health(authorization: str | None = Header(default=None)):
     return {
         "ok": True,
         "engine": f"PaddleOCR {OCR_MODEL_VERSION}",
+        "detectionModel": OCR_DET_MODEL,
+        "recognitionModel": OCR_REC_MODEL,
         "device": "cpu",
         "modelLoaded": get_ocr.cache_info().currsize > 0,
         "freeLocal": True,
@@ -120,7 +127,7 @@ async def parse_document(
             "text": text,
             "markdown": text,
             "pageCount": page_count or 1,
-            "engine": f"paddleocr:{OCR_MODEL_VERSION}",
+            "engine": f"paddleocr:{OCR_MODEL_VERSION}:small",
             "mode": "table-text" if mode == "table" else "text",
             "freeLocal": True,
         }
