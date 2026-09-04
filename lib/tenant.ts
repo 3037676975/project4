@@ -203,7 +203,7 @@ export async function createTenantInvitation(input: { context: TenantContext; em
     (id, tenant_id, email, role, token_hash, created_by_member_id, status, expires_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
     .bind(id, input.context.tenantId, input.email, input.role, tokenHash, input.context.memberId, expiresAt, now.toISOString()).run();
-  return { id, email: input.email, role: input.context.role, status: "pending", expiresAt, inviteUrl: `${input.origin.replace(/\/$/, "")}/invite/${token}` };
+  return { id, email: input.email, role: input.role, status: "pending", expiresAt, inviteUrl: `${input.origin.replace(/\/$/, "")}/invite/${token}` };
 }
 
 export function requireRole(context: TenantContext, allowed: TenantContext["role"][]) {
