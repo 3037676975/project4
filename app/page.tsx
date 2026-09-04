@@ -124,7 +124,7 @@ export default async function Page() {
           <div className={styles.heroAside} aria-hidden="true">
             <div className={styles.glowOne}/><div className={styles.glowTwo}/>
             <div className={styles.agentCard}>
-              <img src="/brand/support-agent-v3.jpg" alt="真人客服"/>
+              <img src="/brand/support-agent.jpg" alt="真人客服"/>
               <div><small>售前顾问 · 林然</small><b>在线 · 最近回复 42 秒</b></div>
               <span>● 在线</span>
             </div>
