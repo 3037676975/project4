@@ -54,32 +54,42 @@ test("system manual visibility and RAG application are independent switches", as
   assert.match(platform, /应用开关/);
 });
 
-test("OCR supports scanned documents, tables and the local PaddleOCR service", async () => {
-  const [cloud, upload, dashboard, compose, provider, paddle] = await Promise.all([
+test("private OCR is local-only and waits for PaddleOCR model readiness", async () => {
+  const [cloud, upload, compose, provider, settings, paddle, health] = await Promise.all([
     readFile(new URL("../lib/cloud-ocr.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/knowledge/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../docker-compose.private.yml", import.meta.url), "utf8"),
     readFile(new URL("../lib/provider.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/settings/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../services/paddleocr/app/main.py", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/platform/services/route.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(cloud, /RecognizeTableAccurateOCR/);
-  assert.match(cloud, /rest\/2\.0\/ocr\/v1\/\$\{engine\}/);
-  assert.match(cloud, /pdf_file/);
   assert.match(upload, /recognitionMode/);
-  assert.match(dashboard, /表格结构化 OCR/);
   assert.match(compose, /paddleocr:/);
   assert.match(compose, /PP-OCRv6_small_det/);
   assert.match(compose, /PP-OCRv6_small_rec/);
-  assert.match(provider, /LOCAL_OCR_MODE/);
+  assert.match(compose, /paddleocr:\s*\n\s*condition: service_healthy/);
+  assert.match(provider, /if \(kind === "ocr"\) return localPaddleOcrConfig\(runtime\)/);
   assert.match(provider, /http:\/\/paddleocr:8002/);
-  assert.match(paddle, /PaddleOCR/);
+  assert.match(settings, /OCR 已固定为服务器内置 PaddleOCR/);
+  assert.match(paddle, /lifespan/);
+  assert.match(paddle, /PaddleOCR model is not ready/);
   assert.match(paddle, /freeLocal/);
+  assert.match(health, /企业唯一 OCR/);
+
+  assert.doesNotMatch(cloud, /aip\.baidubce\.com|ocr\.tencentcloudapi\.com|oauth\/2\.0\/token|RecognizeTableAccurateOCR/);
+  assert.match(cloud, /OCR 已从 Project4 移除/);
 });
 
-test("Tencent GeneralAccurateOCR never sends the removed DetectDirection parameter", async () => {
-  const cloud = await readFile(new URL("../lib/cloud-ocr.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(cloud, /DetectDirection/);
-  assert.match(cloud, /EnableDetectSplit/);
-  assert.match(cloud, /ConfigID: "OCR"/);
+test("superadmin enterprise entry repairs its own suspended workspace and overrides stale tenant selection", async () => {
+  const [workspacePage, repair] = await Promise.all([
+    readFile(new URL("../app/workspace/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/platform-workspace-repair.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(workspacePage, /repairPlatformWorkspace/);
+  assert.match(workspacePage, /initialTenantId/);
+  assert.match(repair, /UPDATE tenants SET status = 'active'/);
+  assert.match(repair, /role = 'owner', status = 'active'/);
+  assert.match(repair, /billing_email/);
+  assert.doesNotMatch(repair, /UPDATE tenants SET status = 'active'.*WHERE status/s);
 });
