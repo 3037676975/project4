@@ -17,15 +17,37 @@ export const PROVIDER_SELECT_COLUMNS = `id, kind, provider, base_url, model, sec
 
 export async function loadPlatformProviderRows() {
   const result = await getRuntime().DB.prepare(`SELECT ${PROVIDER_SELECT_COLUMNS}
-    FROM platform_provider_configs WHERE status = 'active'`).all<ProviderConfigRow>();
+    FROM platform_provider_configs WHERE status = 'active' AND kind != 'ocr'`).all<ProviderConfigRow>();
   return result.results;
+}
+
+async function purgeLegacyOcrProviders(admin?: PlatformContext) {
+  const { DB } = getRuntime();
+  const counts = await Promise.all([
+    DB.prepare("SELECT COUNT(*) AS total FROM platform_provider_configs WHERE kind = 'ocr'").first<{ total: number }>(),
+    DB.prepare("SELECT COUNT(*) AS total FROM tenant_provider_configs WHERE kind = 'ocr'").first<{ total: number }>(),
+  ]);
+  const removed = Number(counts[0]?.total || 0) + Number(counts[1]?.total || 0);
+  if (!removed) return 0;
+  await DB.batch([
+    DB.prepare("DELETE FROM platform_provider_configs WHERE kind = 'ocr'"),
+    DB.prepare("DELETE FROM tenant_provider_configs WHERE kind = 'ocr'"),
+  ]);
+  if (admin) {
+    await writePlatformAudit(admin, "legacy_cloud_ocr.removed", "platform_provider", "ocr", {
+      removed,
+      replacement: "builtin_paddleocr",
+    });
+  }
+  return removed;
 }
 
 export async function ensurePlatformProviderConfigs(admin: PlatformContext) {
   const { DB } = getRuntime();
-  const existing = await DB.prepare("SELECT kind FROM platform_provider_configs WHERE status = 'active'").all<{ kind: ProviderKind }>();
+  const removedOcr = await purgeLegacyOcrProviders(admin);
+  const existing = await DB.prepare("SELECT kind FROM platform_provider_configs WHERE status = 'active' AND kind != 'ocr'").all<{ kind: ProviderKind }>();
   const present = new Set(existing.results.map((row) => row.kind));
-  if (present.size >= 4) return { adopted: 0, tenantId: null as string | null };
+  if (present.size >= 3) return { adopted: 0, tenantId: null as string | null, removedOcr };
 
   const now = new Date().toISOString();
   let adopted = 0;
@@ -35,7 +57,7 @@ export async function ensurePlatformProviderConfigs(admin: PlatformContext) {
     FROM tenant_provider_configs tpc
     LEFT JOIN tenant_members tm ON tm.tenant_id = tpc.tenant_id AND tm.status = 'active'
       AND ((? IS NOT NULL AND tm.account_id = ?) OR tm.email = ?)
-    WHERE tpc.status = 'active'
+    WHERE tpc.status = 'active' AND tpc.kind != 'ocr'
       AND (tpc.api_key_ciphertext IS NOT NULL OR tpc.reuse_api_key_from = 'embedding')
     GROUP BY tpc.tenant_id
     ORDER BY belongs_to_admin DESC, config_count DESC, latest DESC
@@ -43,7 +65,7 @@ export async function ensurePlatformProviderConfigs(admin: PlatformContext) {
 
   if (source?.tenant_id) {
     sourceTenantId = source.tenant_id;
-    for (const kind of ["generation", "embedding", "rerank", "ocr"] as const) {
+    for (const kind of ["generation", "embedding", "rerank"] as const) {
       if (present.has(kind)) continue;
       const row = await DB.prepare(`SELECT ${PROVIDER_SELECT_COLUMNS}
         FROM tenant_provider_configs WHERE tenant_id = ? AND kind = ? AND status = 'active' LIMIT 1`)
@@ -85,7 +107,7 @@ export async function ensurePlatformProviderConfigs(admin: PlatformContext) {
       sourceTenantId, adoptedKinds: adopted,
     });
   }
-  return { adopted, tenantId: sourceTenantId };
+  return { adopted, tenantId: sourceTenantId, removedOcr };
 }
 
 export async function loadEffectiveProviderRows(tenantId: string) {
@@ -93,7 +115,7 @@ export async function loadEffectiveProviderRows(tenantId: string) {
   const [platform, tenant] = await Promise.all([
     loadPlatformProviderRows(),
     DB.prepare(`SELECT ${PROVIDER_SELECT_COLUMNS} FROM tenant_provider_configs
-      WHERE tenant_id = ? AND status = 'active'`).bind(tenantId).all<ProviderConfigRow>(),
+      WHERE tenant_id = ? AND status = 'active' AND kind != 'ocr'`).bind(tenantId).all<ProviderConfigRow>(),
   ]);
   const rows = new Map<ProviderKind, { row: ProviderConfigRow; scope: "platform" | "tenant" }>();
   for (const row of tenant.results) rows.set(row.kind, { row, scope: "tenant" });
