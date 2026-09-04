@@ -44,12 +44,21 @@ if [[ -z "$SOURCE_DIR" || ! -f "$SOURCE_DIR/package.json" || ! -f "$SOURCE_DIR/d
 fi
 
 echo "[Project4] 发布包已解压: $SOURCE_DIR"
-echo "[Project4] 使用解压后的源码构建 knowflow 镜像"
+BUILD_SERVICES=(knowflow)
+if docker compose \
+  -p "$COMPOSE_PROJECT_NAME" \
+  --env-file "$PROJECT_DIR/.env.private" \
+  -f "$SOURCE_DIR/docker-compose.private.yml" \
+  config --services | grep -qx paddleocr; then
+  BUILD_SERVICES+=(paddleocr)
+  echo "[Project4] GitHub 发布包包含 PaddleOCR，本次一并构建"
+fi
 
+echo "[Project4] 使用解压后的源码构建: ${BUILD_SERVICES[*]}"
 docker compose \
   -p "$COMPOSE_PROJECT_NAME" \
   --env-file "$PROJECT_DIR/.env.private" \
   -f "$SOURCE_DIR/docker-compose.private.yml" \
-  build knowflow
+  build "${BUILD_SERVICES[@]}"
 
 echo "[Project4] GitHub 压缩包构建完成: ${REF:0:7}"
