@@ -1,4 +1,5 @@
 import { POST as publicChatPost } from "../chat/route";
+import { createEmbedToken, loadPublicWidgetAssistant } from "../../../../lib/public-widget";
 import { getRuntime } from "../../../../lib/runtime";
 
 type HomepageChatPayload = {
@@ -8,7 +9,6 @@ type HomepageChatPayload = {
   conversationToken?: unknown;
   visitorId?: unknown;
   mode?: unknown;
-  embedToken?: unknown;
 };
 
 function fallbackAnswer(question: string) {
@@ -60,16 +60,26 @@ export async function POST(request: Request) {
       return Response.json({ answer: fallbackAnswer(question), mode: "ai", fallback: true, sources: [] });
     }
 
+    const assistant = await loadPublicWidgetAssistant(row.public_id);
+    if (!assistant) {
+      return Response.json({ answer: fallbackAnswer(question), mode: "ai", fallback: true, sources: [] });
+    }
+
+    const embedToken = await createEmbedToken(assistant, "direct");
+    const forwardedHeaders = new Headers(request.headers);
+    forwardedHeaders.set("content-type", "application/json");
+    forwardedHeaders.delete("content-length");
+
     const forwarded = new Request(new URL("/api/public/chat", request.url), {
       method: "POST",
-      headers: request.headers,
+      headers: forwardedHeaders,
       body: JSON.stringify({
         publicId: row.public_id,
         question,
         conversationId: typeof payload.conversationId === "string" ? payload.conversationId : "",
         conversationToken: typeof payload.conversationToken === "string" ? payload.conversationToken : "",
         visitorId: typeof payload.visitorId === "string" ? payload.visitorId : "",
-        embedToken: typeof payload.embedToken === "string" ? payload.embedToken : "",
+        embedToken,
         mode: payload.mode === "human" ? "human" : "ai",
       }),
     });
