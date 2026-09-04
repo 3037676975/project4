@@ -149,8 +149,8 @@ function currentTencentTableAction(model: string | null) {
 
 function tencentTextPayload(action: string, source: Record<string, unknown>) {
   const currentAction = currentTencentTextAction(action);
-  if (currentAction === "GeneralBasicOCR") return { ...source, LanguageType: "zh", DetectDirection: true, Paragraph: true };
-  return { ...source, EnableDetectSplit: true, ConfigID: "OCR" };
+  if (currentAction === "GeneralBasicOCR") return { ...source, LanguageType: "zh" };
+  return { ...source, EnableDetectSplit: true, ConfigID: "OCR", WordsType: "0" };
 }
 
 async function callTencent(config: StoredProviderConfig, payload: Record<string, unknown>, requestedAction?: string) {
