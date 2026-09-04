@@ -76,7 +76,7 @@ HEALTH_OK=0
 for i in {1..40}; do
   if curl -fsS --max-time 5 http://127.0.0.1:3000 >/dev/null; then
     HEALTH_OK=1
-    echo "[Project4] 健康检查通过 (${i}/40)"
+    echo "[Project4] KnowFlow 健康检查通过 (${i}/40)"
     break
   fi
   echo "[Project4] 服务启动等待 ${i}/40"
@@ -84,12 +84,34 @@ for i in {1..40}; do
 done
 
 if [[ "$HEALTH_OK" != "1" ]]; then
-  echo "[Project4] 健康检查失败"
+  echo "[Project4] KnowFlow 健康检查失败"
   docker compose \
     -p "$COMPOSE_PROJECT_NAME" \
     --env-file "$PROJECT_DIR/.env.private" \
     -f "$PROJECT_DIR/docker-compose.private.yml" \
     logs --tail=150 knowflow || true
+  exit 1
+fi
+
+echo "[Project4] 检查本地 OCR / Qdrant"
+VERIFY_OK=0
+for i in {1..20}; do
+  if bash "$PROJECT_DIR/scripts/verify-private-services.sh"; then
+    VERIFY_OK=1
+    echo "[Project4] 私有化核心服务检查通过 (${i}/20)"
+    break
+  fi
+  echo "[Project4] PaddleOCR / Qdrant 尚未就绪 ${i}/20"
+  sleep 3
+done
+
+if [[ "$VERIFY_OK" != "1" ]]; then
+  echo "[Project4] PaddleOCR 或 Qdrant 检查失败"
+  docker compose \
+    -p "$COMPOSE_PROJECT_NAME" \
+    --env-file "$PROJECT_DIR/.env.private" \
+    -f "$PROJECT_DIR/docker-compose.private.yml" \
+    logs --tail=180 paddleocr qdrant || true
   exit 1
 fi
 
