@@ -22,6 +22,7 @@ if (-not (Test-Path $EnvFile)) {
     "LOCAL_ADMIN_PASSWORD=$GeneratedPassword"
     "LOCAL_AUTH_SESSION_SECRET=$sessionSecret"
     "PARSER_API_KEY=$(New-HexSecret)"
+    "LOCAL_OCR_MODE=paddleocr"
     "DEEPSEEK_API_KEY="
     "QDRANT_API_KEY=$(New-HexSecret)"
     "PAYMENT_CALLBACK_SECRET=$(New-HexSecret)"
@@ -56,9 +57,14 @@ if (-not ($ExistingEnv -match '^LOCAL_AUTH_SESSION_SECRET=')) {
 if (-not ($ExistingEnv -match '^MAIL_RELAY_TOKEN=')) {
   "MAIL_RELAY_TOKEN=$(New-HexSecret)" | Add-Content -Path $EnvFile -Encoding utf8
 }
+if (-not ($ExistingEnv -match '^LOCAL_OCR_MODE=')) {
+  "LOCAL_OCR_MODE=paddleocr" | Add-Content -Path $EnvFile -Encoding utf8
+  Write-Host "已为旧配置启用本地 PaddleOCR。"
+}
 
 docker compose --env-file $EnvFile -f (Join-Path $ProjectDir "docker-compose.private.yml") up -d --build
 Write-Host "KnowFlow 已启动：http://localhost:3000"
+Write-Host "本地 OCR：PaddleOCR（企业文档默认走本机免费识别）"
 if ($GeneratedPassword) {
   Write-Host "超级管理员：admin@local.test"
   Write-Host "初始密码：$GeneratedPassword"
