@@ -24,12 +24,14 @@ export async function GET(request: Request) {
     const rerank = rows.find((row) => row.kind === "rerank");
     const embeddingReady = embedding?.provider === "siliconflow" && Boolean(embedding.api_key_hint);
     const rerankReady = rerank?.provider === "siliconflow" && Boolean(rerank.api_key_hint || (rerank.reuse_api_key_from === "embedding" && embeddingReady));
+    const localOcrPreferred = runtime.APP_ENV === "local" && (runtime.LOCAL_OCR_MODE || "paddleocr") === "paddleocr";
     const services: ServiceState[] = [
       { id: "embedding", name: "Embedding", status: embeddingReady ? "healthy" : embedding ? "degraded" : "stopped", detail: embeddingReady ? "硅基流动 · BAAI/bge-m3 · API 已配置" : "等待配置硅基流动 API Key" },
       { id: "rerank", name: "Rerank", status: rerankReady ? "healthy" : rerank ? "degraded" : "stopped", detail: rerankReady ? "硅基流动 · BAAI/bge-reranker-v2-m3" : "等待配置或复用 Embedding API Key" },
+      await jsonHealth("paddleocr", "PaddleOCR 本地免费 OCR", "http://paddleocr:8002/health", runtime.PARSER_API_KEY ? { Authorization: `Bearer ${runtime.PARSER_API_KEY}` } : {}, (data) => `${String(data.engine || "PaddleOCR")} · CPU${localOcrPreferred ? " · 企业默认" : " · 待机备用"}`),
       await jsonHealth("parser", "文档解析", "http://document-parser:8001/health", runtime.PARSER_API_KEY ? { Authorization: `Bearer ${runtime.PARSER_API_KEY}` } : {}, (data) => String(data.engine || "Docling + RapidOCR")),
       await jsonHealth("qdrant", "向量数据库", `${(runtime.QDRANT_URL || "http://qdrant:6333").replace(/\/$/, "")}/collections`, runtime.QDRANT_API_KEY ? { "api-key": runtime.QDRANT_API_KEY } : {}, () => "Qdrant 集合服务正常"),
     ];
-    return Response.json({ checkedAt: new Date().toISOString(), services });
+    return Response.json({ checkedAt: new Date().toISOString(), localOcrMode: runtime.LOCAL_OCR_MODE || "paddleocr", services });
   } catch (error) { return platformRouteError(error); }
 }
