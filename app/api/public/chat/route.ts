@@ -1,6 +1,7 @@
 import { PublicApiError } from "../../../../lib/api-keys";
 import { completeOnce, parseMessages, prepareCompletion } from "../../../../lib/completion";
 import { findFaqMatch, issueConversationToken, requireConversationToken, visitorMetadata } from "../../../../lib/customer-service";
+import { flushNotificationOutbox, queueNotifications } from "../../../../lib/notifications";
 import { enforceWidgetQuota, enforceWidgetRateLimit, loadPublicWidgetAssistant, publicWidgetError, verifyEmbedToken } from "../../../../lib/public-widget";
 import { getRuntime } from "../../../../lib/runtime";
 import { sha256 } from "../../../../lib/security";
@@ -74,10 +75,22 @@ export async function POST(request: Request) {
     if (requestedMode === "human") {
       const ticket = await DB.prepare("SELECT id FROM support_tickets WHERE tenant_id = ? AND conversation_id = ? AND status IN ('open','processing') LIMIT 1")
         .bind(assistant.tenantId, conversationId).first<{ id: string }>();
-      if (!ticket) await DB.prepare(`INSERT INTO support_tickets
-        (id, tenant_id, assistant_id, conversation_id, subject, visitor_id_hash, description, contact, priority, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, '', 'normal', 'open', ?, ?)`)
-        .bind(`ticket_${crypto.randomUUID().replaceAll("-", "")}`, assistant.tenantId, assistant.id, conversationId, question.slice(0, 80), visitorIdHash, question, now, now).run();
+      let createdTicketId = "";
+      if (!ticket) {
+        createdTicketId = `ticket_${crypto.randomUUID().replaceAll("-", "")}`;
+        await DB.prepare(`INSERT INTO support_tickets
+          (id, tenant_id, assistant_id, conversation_id, subject, visitor_id_hash, description, contact, priority, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, '', 'normal', 'open', ?, ?)`)
+          .bind(createdTicketId, assistant.tenantId, assistant.id, conversationId, question.slice(0, 80), visitorIdHash, question, now, now).run();
+        await queueNotifications({
+          tenantId: assistant.tenantId,
+          eventType: "ticket.created",
+          entityType: "ticket",
+          entityId: createdTicketId,
+          payload: { title: "新人工工单", description: question, conversationId, channel: "web_widget" },
+        });
+        await flushNotificationOutbox(assistant.tenantId, 5).catch(() => undefined);
+      }
       const firstHandoff = existing?.mode !== "human";
       if (firstHandoff) {
         const handoffMessage = "已进入人工接待。消息会直接进入客服工作台，您也可以随时恢复 AI 助手。";
@@ -88,9 +101,9 @@ export async function POST(request: Request) {
           DB.prepare("UPDATE customer_conversations SET mode = 'human', status = 'handoff', message_count = message_count + 1, updated_at = ? WHERE id = ? AND tenant_id = ?")
             .bind(new Date().toISOString(), conversationId, assistant.tenantId),
         ]);
-        return Response.json({ conversationId, conversationToken: responseToken, messageId, answer: handoffMessage, mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [] });
+        return Response.json({ conversationId, conversationToken: responseToken, messageId, answer: handoffMessage, mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [], ticketId: createdTicketId || ticket?.id || "" });
       }
-      return Response.json({ conversationId, conversationToken: responseToken, messageId: "", answer: "", mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [] });
+      return Response.json({ conversationId, conversationToken: responseToken, messageId: "", answer: "", mode: "human", resolved: false, grounded: false, faqMatched: false, qualityScore: 0, sources: [], ticketId: createdTicketId || ticket?.id || "" });
     }
 
     const faq = await findFaqMatch(assistant.tenantId, assistant.id, question);

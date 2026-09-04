@@ -8,17 +8,65 @@ import {
   supportEmailNotificationsAllowed,
   writePlatformSetting,
 } from "../../../../lib/platform-settings";
+import { getRuntime } from "../../../../lib/runtime";
 
-async function fullSettings() {
-  const [mail, homepageWidget, supportEmailAllowed] = await Promise.all([
-    publicMailSettings(), loadHomepageWidgetConfig(), supportEmailNotificationsAllowed(),
+type AdminRef = { accountId: string | null; email: string };
+type SupportAssistant = { id: string; tenant_id: string; knowledge_base_id: string; tenant_name: string };
+
+async function resolveSupportAssistant(admin: AdminRef) {
+  const accountId = admin.accountId || "";
+  return getRuntime().DB.prepare(`SELECT a.id, a.tenant_id, a.knowledge_base_id, t.name AS tenant_name
+    FROM tenant_members tm
+    JOIN tenants t ON t.id = tm.tenant_id AND t.status = 'active'
+    JOIN assistants a ON a.tenant_id = tm.tenant_id AND a.status = 'active'
+    WHERE tm.status = 'active'
+      AND tm.role IN ('owner','admin')
+      AND ((? <> '' AND tm.account_id = ?) OR tm.email = ?)
+    ORDER BY CASE tm.role WHEN 'owner' THEN 0 ELSE 1 END, a.created_at ASC
+    LIMIT 1`).bind(accountId, accountId, admin.email).first<SupportAssistant>();
+}
+
+async function loadSupportKnowledge(admin: AdminRef) {
+  const assistant = await resolveSupportAssistant(admin);
+  if (!assistant) return { available: false, tenantId: "", tenantName: "", assistantId: "", knowledgeBaseId: "", knowledgeBases: [] as Array<Record<string, unknown>> };
+  const result = await getRuntime().DB.prepare(`SELECT kb.id, kb.name, kb.description, kb.is_default, kb.position,
+      COUNT(DISTINCT d.id) AS document_count, COUNT(DISTINCT c.id) AS category_count
+    FROM knowledge_bases kb
+    LEFT JOIN knowledge_documents d ON d.tenant_id = kb.tenant_id AND d.knowledge_base_id = kb.id
+    LEFT JOIN knowledge_categories c ON c.tenant_id = kb.tenant_id AND c.knowledge_base_id = kb.id
+    WHERE kb.tenant_id = ? AND kb.status = 'active'
+    GROUP BY kb.id
+    ORDER BY kb.is_default DESC, kb.position ASC, kb.created_at ASC`).bind(assistant.tenant_id).all();
+  return {
+    available: true,
+    tenantId: assistant.tenant_id,
+    tenantName: assistant.tenant_name,
+    assistantId: assistant.id,
+    knowledgeBaseId: assistant.knowledge_base_id,
+    knowledgeBases: (result.results as Array<Record<string, unknown>>).map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      isDefault: Boolean(row.is_default),
+      position: Number(row.position || 0),
+      documentCount: Number(row.document_count || 0),
+      categoryCount: Number(row.category_count || 0),
+    })),
+  };
+}
+
+async function fullSettings(admin: AdminRef) {
+  const [mail, homepageWidget, supportEmailAllowed, supportKnowledge] = await Promise.all([
+    publicMailSettings(), loadHomepageWidgetConfig(), supportEmailNotificationsAllowed(), loadSupportKnowledge(admin),
   ]);
-  return { ...mail, homepageWidget, supportEmailAllowed };
+  return { ...mail, homepageWidget, supportEmailAllowed, supportKnowledge };
 }
 
 export async function GET(request: Request) {
-  try { await requirePlatformAdmin(request, ["super_admin"]); return Response.json(await fullSettings()); }
-  catch (error) { return platformRouteError(error); }
+  try {
+    const admin = await requirePlatformAdmin(request, ["super_admin"]);
+    return Response.json(await fullSettings(admin));
+  } catch (error) { return platformRouteError(error); }
 }
 
 export async function POST(request: Request) {
@@ -52,14 +100,25 @@ export async function POST(request: Request) {
         quickQuestions: quickQuestions.length ? quickQuestions : ["了解套餐", "预约演示", "RAG 怎么用", "支持私有化吗"],
       };
       const supportEmailAllowed = body.supportEmailAllowed === true;
+      const supportRaw = (body.supportKnowledge && typeof body.supportKnowledge === "object" ? body.supportKnowledge : {}) as Record<string, unknown>;
+      const knowledgeBaseId = typeof supportRaw.knowledgeBaseId === "string" ? supportRaw.knowledgeBaseId.trim() : "";
+      const supportAssistant = await resolveSupportAssistant(admin);
+      if (knowledgeBaseId) {
+        if (!supportAssistant) return Response.json({ error: "超级管理员尚未绑定可用于官网客服的企业工作区。" }, { status: 409 });
+        const kb = await getRuntime().DB.prepare("SELECT id, name FROM knowledge_bases WHERE id = ? AND tenant_id = ? AND status = 'active' LIMIT 1")
+          .bind(knowledgeBaseId, supportAssistant.tenant_id).first<{ id: string; name: string }>();
+        if (!kb) return Response.json({ error: "选择的全局客服知识库不存在或无权限。" }, { status: 404 });
+        await getRuntime().DB.prepare("UPDATE assistants SET knowledge_base_id = ?, updated_at = ? WHERE id = ? AND tenant_id = ?")
+          .bind(kb.id, new Date().toISOString(), supportAssistant.id, supportAssistant.tenant_id).run();
+      }
       await Promise.all([
         writePlatformSetting(HOMEPAGE_WIDGET_CONFIG_KEY, JSON.stringify(homepageWidget), admin.email),
         writePlatformSetting(SUPPORT_EMAIL_NOTIFICATIONS_KEY, supportEmailAllowed ? "1" : "0", admin.email),
       ]);
       await writePlatformAudit(admin, "support.global_settings.updated", "platform_settings", HOMEPAGE_WIDGET_CONFIG_KEY, {
-        widgetEnabled: homepageWidget.enabled, autoOpen: homepageWidget.autoOpen, supportEmailAllowed,
+        widgetEnabled: homepageWidget.enabled, autoOpen: homepageWidget.autoOpen, supportEmailAllowed, knowledgeBaseId: knowledgeBaseId || supportAssistant?.knowledge_base_id || null,
       });
-      return Response.json(await fullSettings());
+      return Response.json(await fullSettings(admin));
     }
 
     const saved = await saveMailSettings(body, admin.id);
@@ -68,6 +127,6 @@ export async function POST(request: Request) {
       relayReady: saved.relayReady, deliveryReady: saved.deliveryReady, deliveryMode: saved.deliveryMode,
       codeExpiryMinutes: saved.codeExpiryMinutes, resendSeconds: saved.resendSeconds,
     });
-    return Response.json({ ...saved, homepageWidget: await loadHomepageWidgetConfig(), supportEmailAllowed: await supportEmailNotificationsAllowed() });
+    return Response.json(await fullSettings(admin));
   } catch (error) { return platformRouteError(error); }
 }

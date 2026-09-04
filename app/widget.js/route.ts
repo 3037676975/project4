@@ -14,6 +14,62 @@ export async function GET(request: Request) {
   try { token = await createEmbedToken(assistant, embedOrigin); }
   catch { return javascript("console.error('KnowFlow: 当前网站域名不在客服白名单中');", 403); }
   const frameUrl = `${url.origin}/chat/${assistant.publicId}?token=${encodeURIComponent(token)}`;
-  const color = assistant.themeColor;
-  return javascript(`(()=>{if(document.getElementById('knowflow-widget-root'))return;const root=document.createElement('div');root.id='knowflow-widget-root';root.style.cssText='position:fixed;right:22px;bottom:22px;z-index:2147483000;font-family:system-ui,sans-serif';const frame=document.createElement('iframe');frame.src=${JSON.stringify(frameUrl)};frame.title=${JSON.stringify(assistant.brandName)};frame.allow='clipboard-write';frame.style.cssText='display:none;width:min(420px,calc(100vw - 24px));height:min(680px,calc(100vh - 92px));border:0;border-radius:18px;box-shadow:0 18px 60px rgba(15,23,42,.25);background:#fff;margin-bottom:12px';const button=document.createElement('button');button.type='button';button.setAttribute('aria-label','打开智能客服');button.innerHTML='<span style="font-size:18px">✦</span><span style="display:grid;text-align:left;line-height:1.05"><b style="font-size:12px">在线客服</b><small style="margin-top:4px;font-size:9px;opacity:.78">AI + 人工</small></span>';button.style.cssText=${JSON.stringify(`float:right;min-width:132px;height:58px;padding:0 17px;border:1px solid rgba(255,255,255,.18);border-radius:18px;display:flex;align-items:center;justify-content:center;gap:10px;background:${color};color:#fff;font-size:24px;cursor:pointer;box-shadow:0 12px 30px ${color}66;transition:transform .2s ease`)};let open=false;button.onclick=()=>{open=!open;frame.style.display=open?'block':'none';button.innerHTML=open?'×':'<span style="font-size:18px">✦</span><span style="display:grid;text-align:left;line-height:1.05"><b style="font-size:12px">在线客服</b><small style="margin-top:4px;font-size:9px;opacity:.78">AI + 人工</small></span>';button.style.minWidth=open?'58px':'132px';button.style.width=open?'58px':'auto';button.style.transform='none'};root.append(frame,button);document.body.append(root)})();`);
+  const avatarUrl = `${url.origin}/brand/support-agent-v3.jpg`;
+
+  return javascript(`(()=>{
+    if(document.getElementById('knowflow-widget-root'))return;
+    const root=document.createElement('div');
+    root.id='knowflow-widget-root';
+    root.style.cssText='position:fixed;right:18px;bottom:18px;z-index:2147483000;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+
+    const frame=document.createElement('iframe');
+    frame.src=${JSON.stringify(frameUrl)};
+    frame.title=${JSON.stringify(assistant.brandName)};
+    frame.allow='clipboard-write';
+    frame.style.cssText='display:block;width:min(380px,calc(100vw - 28px));height:min(600px,calc(100vh - 36px));max-height:calc(100vh - 36px);border:1px solid rgba(148,163,184,.25);border-radius:26px;box-shadow:0 28px 90px rgba(15,23,42,.22),0 8px 24px rgba(79,70,229,.08);background:#fff;overflow:hidden';
+
+    const button=document.createElement('button');
+    button.type='button';
+    button.setAttribute('aria-label','关闭客服');
+    button.style.cssText='position:absolute;right:12px;top:12px;width:34px;height:34px;padding:0;border:1px solid rgba(255,255,255,.18);border-radius:12px;display:grid;place-items:center;background:rgba(15,23,42,.28);color:#fff;font-size:20px;line-height:1;cursor:pointer;box-shadow:none;backdrop-filter:blur(12px)';
+
+    let open=true;
+    function sync(){
+      if(open){
+        frame.style.display='block';
+        button.innerHTML='×';
+        button.setAttribute('aria-label','关闭客服');
+        button.style.position='absolute';
+        button.style.right='12px';
+        button.style.top='12px';
+        button.style.bottom='auto';
+        button.style.width='34px';
+        button.style.height='34px';
+        button.style.borderRadius='12px';
+        button.style.border='1px solid rgba(255,255,255,.18)';
+        button.style.background='rgba(15,23,42,.28)';
+        button.style.boxShadow='none';
+        button.style.overflow='visible';
+      }else{
+        frame.style.display='none';
+        button.innerHTML='<img src=${JSON.stringify(avatarUrl)} alt="客服" style="width:100%;height:100%;object-fit:cover;object-position:center 20%;display:block">';
+        button.setAttribute('aria-label','打开智能客服');
+        button.style.position='relative';
+        button.style.right='auto';
+        button.style.top='auto';
+        button.style.bottom='auto';
+        button.style.width='50px';
+        button.style.height='50px';
+        button.style.borderRadius='999px';
+        button.style.border='2px solid #fff';
+        button.style.background='#fff';
+        button.style.boxShadow='0 14px 38px rgba(15,23,42,.18)';
+        button.style.overflow='hidden';
+      }
+    }
+    button.onclick=()=>{open=!open;sync()};
+    root.append(frame,button);
+    document.body.append(root);
+    sync();
+  })();`);
 }
