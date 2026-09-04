@@ -303,7 +303,7 @@ export default function PublicAiWidget() {
   if (!open) {
     return (
       <button onClick={reopenWidget} aria-label="重新打开 KnowFlow 客服" style={{ position: "fixed", right: 18, bottom: 18, zIndex: 1000, width: 50, height: 50, display: "grid", placeItems: "center", border: "2px solid #fff", background: "#fff", boxShadow: "0 14px 38px rgba(15,23,42,.18)", borderRadius: 999, padding: 0, cursor: "pointer", overflow: "hidden" }} title="打开 AI 客服">
-        <img src="/brand/support-agent-v3.jpg" alt="真人客服" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 20%" }} />
+        <img src="/brand/support-agent.jpg" alt="真人客服" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 20%" }} />
       </button>
     );
   }
@@ -313,7 +313,7 @@ export default function PublicAiWidget() {
       <div style={{ position: "relative", padding: "16px 16px 13px", color: "white", background: "linear-gradient(135deg,#0f172a 0%,#312e81 55%,#6d28d9 100%)" }}>
         <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 85% -20%, rgba(255,255,255,.25), transparent 42%)", pointerEvents: "none" }} />
         <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 12 }}>
-          <img src="/brand/support-agent-v3.jpg" alt="KnowFlow 真人客服" style={agentAvatarStyle} />
+          <img src="/brand/support-agent.jpg" alt="KnowFlow 真人客服" style={agentAvatarStyle} />
           <div style={{ flex: 1 }}><div style={{ fontWeight: 760, fontSize: 15 }}>{config.title}</div><div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 12, color: "rgba(255,255,255,.78)" }}><span style={{ width: 7, height: 7, borderRadius: 999, background: mode === "ai" ? "#4ade80" : "#fbbf24" }} />{mode === "ai" ? "AI 在线 · 知识库优先" : "人工接待模式"}</div></div>
           <button onClick={closeWidget} aria-label="关闭客服" style={{ width: 34, height: 34, borderRadius: 12, border: "1px solid rgba(255,255,255,.16)", background: "rgba(255,255,255,.08)", color: "white", fontSize: 20, cursor: "pointer" }}>×</button>
         </div>
@@ -324,8 +324,8 @@ export default function PublicAiWidget() {
       </div>
 
       <div ref={messageBoxRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 14px 12px", background: "linear-gradient(180deg,#f8fafc 0%,#ffffff 45%)" }}>
-        {messages.map((message) => <div key={message.id} style={{ display: "flex", justifyContent: message.role === "user" ? "flex-end" : "flex-start", marginBottom: 14 }}><div style={{ maxWidth: "86%" }}>{message.role === "ai" && <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, color: "#64748b", fontSize: 11 }}><img src="/brand/support-agent-v3.jpg" alt="真人客服" style={{ width: 22, height: 22, borderRadius: 7, objectFit: "cover", objectPosition: "center 20%" }} /> KnowFlow AI</div>}<div style={{ padding: "11px 13px", borderRadius: message.role === "user" ? "17px 17px 5px 17px" : "17px 17px 17px 5px", background: message.role === "user" ? "linear-gradient(135deg,#4f46e5,#6d28d9)" : message.error ? "#fff7ed" : "#fff", color: message.role === "user" ? "white" : "#1e293b", border: message.role === "user" ? "none" : `1px solid ${message.error ? "#fed7aa" : "#e2e8f0"}`, boxShadow: message.role === "user" ? "0 8px 18px rgba(79,70,229,.2)" : "0 6px 18px rgba(15,23,42,.05)", fontSize: 13.5, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{message.text}</div>{message.meta && <div style={{ marginTop: 5, color: "#94a3b8", fontSize: 10.5, textAlign: message.role === "user" ? "right" : "left" }}>{message.meta}</div>}</div></div>)}
-        {loading && <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#64748b", fontSize: 12 }}><img src="/brand/support-agent-v3.jpg" alt="真人客服" style={{ width: 28, height: 28, borderRadius: 9, objectFit: "cover", objectPosition: "center 20%" }} /><span>{mode === "human" ? "正在连接人工客服…" : "正在查询知识库… 最多等待 15 秒"}</span></div>}
+        {messages.map((message) => <div key={message.id} style={{ display: "flex", justifyContent: message.role === "user" ? "flex-end" : "flex-start", marginBottom: 14 }}><div style={{ maxWidth: "86%" }}>{message.role === "ai" && <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, color: "#64748b", fontSize: 11 }}><img src="/brand/support-agent.jpg" alt="真人客服" style={{ width: 22, height: 22, borderRadius: 7, objectFit: "cover", objectPosition: "center 20%" }} /> KnowFlow AI</div>}<div style={{ padding: "11px 13px", borderRadius: message.role === "user" ? "17px 17px 5px 17px" : "17px 17px 17px 5px", background: message.role === "user" ? "linear-gradient(135deg,#4f46e5,#6d28d9)" : message.error ? "#fff7ed" : "#fff", color: message.role === "user" ? "white" : "#1e293b", border: message.role === "user" ? "none" : `1px solid ${message.error ? "#fed7aa" : "#e2e8f0"}`, boxShadow: message.role === "user" ? "0 8px 18px rgba(79,70,229,.2)" : "0 6px 18px rgba(15,23,42,.05)", fontSize: 13.5, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{message.text}</div>{message.meta && <div style={{ marginTop: 5, color: "#94a3b8", fontSize: 10.5, textAlign: message.role === "user" ? "right" : "left" }}>{message.meta}</div>}</div></div>)}
+        {loading && <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#64748b", fontSize: 12 }}><img src="/brand/support-agent.jpg" alt="真人客服" style={{ width: 28, height: 28, borderRadius: 9, objectFit: "cover", objectPosition: "center 20%" }} /><span>{mode === "human" ? "正在连接人工客服…" : "正在查询知识库… 最多等待 15 秒"}</span></div>}
       </div>
 
       <div style={{ padding: "10px 12px 12px", borderTop: "1px solid #eef2f7", background: "#fff" }}>
