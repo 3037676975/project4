@@ -1,7 +1,6 @@
-import { testBaiduOcr, testTencentOcr } from "../../../../lib/cloud-ocr";
 import { platformRouteError, requirePlatformAdmin } from "../../../../lib/platform-admin";
 import { ensurePlatformProviderConfigs } from "../../../../lib/platform-provider";
-import { loadProviderConfig, ProviderKind } from "../../../../lib/provider";
+import { loadProviderConfig, type ProviderKind } from "../../../../lib/provider";
 
 function parseKind(value: unknown): ProviderKind {
   if (value === "embedding" || value === "rerank" || value === "ocr") return value;
@@ -20,6 +19,8 @@ function errorMessage(data: Record<string, unknown>, fallback: string) {
   const error = data.error;
   if (typeof error === "string") return error;
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
+  const detail = data.detail;
+  if (typeof detail === "string") return detail;
   return fallback;
 }
 
@@ -35,7 +36,10 @@ export async function POST(request: Request) {
     }
     const kind = parseKind(body.kind);
     const config = await loadProviderConfig("", kind);
-    if (!config) return Response.json({ configured: false, error: "请先保存 API 配置。" }, { status: 400 });
+    if (!config) {
+      const message = kind === "ocr" ? "本地 PaddleOCR 尚未启动。" : "请先保存 API 配置。";
+      return Response.json({ configured: false, error: message }, { status: 400 });
+    }
 
     if (kind === "embedding") {
       const response = await fetch(`${config.baseUrl}/embeddings`, {
@@ -80,43 +84,23 @@ export async function POST(request: Request) {
       if (first.index !== 0 || !Number.isFinite(Number(first.relevance_score))) {
         return Response.json({ ok: false, error: "Rerank 已响应，但没有把保修资料排在第一位。" }, { status: 422 });
       }
-      return Response.json({ ok: true, message: `${config.provider === "infinity" ? "本机 Infinity" : "硅基流动"} BGE-Reranker 连接成功`, score: Number(first.relevance_score) });
+      return Response.json({ ok: true, message: "硅基流动 BGE-Reranker 连接成功", score: Number(first.relevance_score) });
     }
 
     if (kind === "ocr") {
-      if (config.provider === "baidu") {
-        try { return Response.json({ ok: true, ...(await testBaiduOcr(config)) }); }
-        catch (error) { return Response.json({ ok: false, error: error instanceof Error ? error.message : "百度云 OCR 测试失败" }, { status: 502 }); }
-      }
-      if (config.provider === "tencent") {
-        try { return Response.json({ ok: true, ...(await testTencentOcr(config)) }); }
-        catch (error) { return Response.json({ ok: false, error: error instanceof Error ? error.message : "腾讯云 OCR 测试失败" }, { status: 502 }); }
-      }
-      if (config.provider === "docling") {
+      try {
         const response = await fetch(`${config.baseUrl}/health`, {
           headers: { Authorization: `Bearer ${config.apiKey}` },
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(20000),
         });
         const data = await safeJson(response);
-        if (!response.ok) return Response.json({ ok: false, error: errorMessage(data, "Docling OCR 健康检查失败。") }, { status: response.status || 502 });
-        return Response.json({ ok: true, message: "Docling + RapidOCR 服务连接成功", engine: data.engine ?? config.model });
+        if (!response.ok) {
+          return Response.json({ ok: false, error: errorMessage(data, "PaddleOCR 尚未就绪。") }, { status: response.status || 502 });
+        }
+        return Response.json({ ok: true, message: "本地 PaddleOCR 连接成功", engine: data.engine ?? config.model });
+      } catch (error) {
+        return Response.json({ ok: false, error: error instanceof Error ? `本地 PaddleOCR 不可达：${error.message}` : "本地 PaddleOCR 不可达" }, { status: 502 });
       }
-      if (config.provider === "compatible") {
-        const response = await fetch(`${config.baseUrl}/health`, {
-          headers: { Authorization: `Bearer ${config.apiKey}` },
-          signal: AbortSignal.timeout(15000),
-        });
-        const data = await safeJson(response);
-        if (!response.ok) return Response.json({ ok: false, error: errorMessage(data, "兼容 OCR 健康检查失败。") }, { status: response.status || 502 });
-        return Response.json({ ok: true, message: "兼容 OCR 服务连接成功", engine: data.engine ?? config.model });
-      }
-      const response = await fetch(`${config.baseUrl}/models`, {
-        headers: { Authorization: `Bearer ${config.apiKey}` },
-        signal: AbortSignal.timeout(15000),
-      });
-      const data = await safeJson(response);
-      if (!response.ok) return Response.json({ ok: false, error: errorMessage(data, "OpenAI OCR 验证失败。") }, { status: response.status || 502 });
-      return Response.json({ ok: true, message: "OpenAI OCR 连接成功" });
     }
 
     const response = await fetch(`${config.baseUrl}/models`, {
