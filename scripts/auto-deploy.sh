@@ -48,11 +48,20 @@ if [[ "${PROJECT4_DEPLOY_FROM_ARCHIVE:-0}" == "1" ]]; then
   bash "$PROJECT_DIR/scripts/build-from-github-archive.sh" "$TARGET_SHA"
 else
   echo "[Project4] 使用当前 Git checkout 直接构建，确保页面与 main 完全一致"
+  BUILD_SERVICES=(knowflow)
+  if docker compose \
+    -p "$COMPOSE_PROJECT_NAME" \
+    --env-file "$PROJECT_DIR/.env.private" \
+    -f "$PROJECT_DIR/docker-compose.private.yml" \
+    config --services | grep -qx paddleocr; then
+    BUILD_SERVICES+=(paddleocr)
+    echo "[Project4] 检测到本地 PaddleOCR，加入构建队列"
+  fi
   docker compose \
     -p "$COMPOSE_PROJECT_NAME" \
     --env-file "$PROJECT_DIR/.env.private" \
     -f "$PROJECT_DIR/docker-compose.private.yml" \
-    build --pull knowflow
+    build --pull "${BUILD_SERVICES[@]}"
 fi
 
 echo "[Project4] 使用新镜像重新创建 Docker 服务"
