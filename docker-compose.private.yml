@@ -73,6 +73,7 @@ services:
       MAX_CONCURRENCY: "1"
       MAX_FILE_BYTES: "12582912"
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      PADDLE_PDX_MODEL_SOURCE: ${PADDLE_PDX_MODEL_SOURCE:-bos}
     ports:
       - "127.0.0.1:8002:8002"
     restart: unless-stopped
