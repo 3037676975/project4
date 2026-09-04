@@ -1,8 +1,7 @@
 /* Compatibility layer for homepage asset polish only.
    Keep the existing Chinese homepage structure and only improve realism details. */
 
-/* Restore the stable CSS-drawn KnowFlow mark from homepage.module.css.
-   This avoids broken raster/data-URI logo resources while keeping the selected K-style visual. */
+/* Keep the stable CSS-drawn KnowFlow mark from homepage.module.css. */
 [class*="brandMark"] {
   background: none !important;
   box-shadow: none !important;
@@ -12,34 +11,19 @@
   display: block !important;
 }
 
-/* Keep the dashboard mini logo on the original production-safe gradient mark. */
+/* Keep the dashboard mini logo on the production-safe gradient mark. */
 [class*="miniLogo"] {
   background: linear-gradient(135deg,#6652ee,#3f7be8) !important;
   color: #fff !important;
 }
 
-/* Replace every legacy customer-service SVG avatar with the real JPG asset. */
-img[src="/brand/support-agent.svg"] {
-  content: url("/brand/support-agent.jpg") !important;
-  object-fit: cover !important;
-  object-position: center 24% !important;
-  background: #f5f7ff;
-}
-
-/* Existing visitor SVG is self-contained and remains stable; keep its crop natural. */
+/* Real customer and support portraits are now direct JPG resources. */
+[class*="agentCard"] img,
 [class*="inbox"] article img,
 [class*="liveChat"] header img,
-[class*="visitorMain"] img,
-[class*="agentCard"] img {
+[class*="visitorMain"] img {
+  display: block;
   object-fit: cover !important;
-  object-position: center 24% !important;
+  object-position: center 22% !important;
   background: #f5f7ff;
-}
-
-/* The real bottom-right customer-service widget also uses the same human agent portrait. */
-button[aria-label="重新打开 KnowFlow 客服"] > span:first-child,
-div:has(> button[aria-label="关闭客服"]) > div:first-child {
-  background: #f5f7ff url("/brand/support-agent.jpg") center 22% / cover no-repeat !important;
-  color: transparent !important;
-  overflow: hidden;
 }
