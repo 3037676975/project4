@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./homepage-polish.css";
 import PublicAiWidget from "../components/public-ai-widget";
 
 const geist = Geist({
