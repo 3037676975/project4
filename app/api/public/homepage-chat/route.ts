@@ -11,6 +11,13 @@ type HomepageChatPayload = {
   mode?: unknown;
 };
 
+type HomepageAssistantRow = {
+  id: string;
+  public_id: string;
+  public_enabled: number;
+  tenant_id: string;
+};
+
 function fallbackAnswer(question: string) {
   const text = question.toLowerCase();
   if (/价格|套餐|收费|多少钱|费用/.test(text)) return "KnowFlow 支持按企业规模、月会话量和是否需要人工客服配置套餐。你可以告诉我团队人数和预计月会话量，我可以继续帮你梳理。";
@@ -35,6 +42,40 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   }
 }
 
+async function loadHomepageAssistant() {
+  const { DB } = getRuntime();
+  const row = await DB.prepare(`
+    SELECT a.id, a.public_id, a.public_enabled, a.tenant_id
+    FROM platform_admins pa
+    JOIN tenant_members tm
+      ON tm.status = 'active'
+      AND ((pa.account_id IS NOT NULL AND tm.account_id = pa.account_id) OR tm.email = pa.email)
+    JOIN tenants t ON t.id = tm.tenant_id AND t.status = 'active'
+    JOIN assistants a ON a.tenant_id = tm.tenant_id AND a.status = 'active'
+    WHERE pa.role = 'super_admin'
+      AND pa.status = 'active'
+      AND tm.role IN ('owner', 'admin')
+      AND a.public_id IS NOT NULL
+      AND a.public_id <> ''
+    ORDER BY pa.created_at ASC,
+      CASE tm.role WHEN 'owner' THEN 0 ELSE 1 END,
+      CASE WHEN a.public_enabled = 1 THEN 0 ELSE 1 END,
+      a.updated_at DESC
+    LIMIT 1
+  `).first<HomepageAssistantRow>();
+
+  if (!row?.public_id) return null;
+
+  // The official KnowFlow homepage always belongs to the platform owner's
+  // workspace. Make that single assistant public if an older installation
+  // created it before homepage routing existed.
+  if (!Boolean(row.public_enabled)) {
+    await DB.prepare("UPDATE assistants SET public_enabled = 1, updated_at = ? WHERE id = ? AND tenant_id = ?")
+      .bind(new Date().toISOString(), row.id, row.tenant_id).run();
+  }
+  return row;
+}
+
 export async function POST(request: Request) {
   let payload: HomepageChatPayload;
   try {
@@ -49,17 +90,7 @@ export async function POST(request: Request) {
   if (question.length > 1200) return Response.json({ error: "问题不能超过 1200 个字符。" }, { status: 400 });
 
   try {
-    const row = await getRuntime().DB.prepare(`
-      SELECT public_id
-      FROM assistants
-      WHERE public_enabled = 1
-        AND status = 'active'
-        AND public_id IS NOT NULL
-        AND public_id <> ''
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `).first<{ public_id: string }>();
-
+    const row = await loadHomepageAssistant();
     if (!row?.public_id) {
       return Response.json({ answer: fallbackAnswer(question), mode: "ai", fallback: true, sources: [] });
     }
