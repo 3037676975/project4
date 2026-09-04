@@ -22,6 +22,7 @@ if [[ ! -f "${env_file}" ]]; then
     echo "LOCAL_ADMIN_PASSWORD=${generated_password}"
     echo "LOCAL_AUTH_SESSION_SECRET=${session_key}"
     echo "PARSER_API_KEY=${parser_key}"
+    echo "LOCAL_OCR_MODE=paddleocr"
     echo "DEEPSEEK_API_KEY="
     echo "QDRANT_API_KEY=${qdrant_key}"
     echo "PAYMENT_CALLBACK_SECRET=${payment_key}"
@@ -55,9 +56,14 @@ fi
 if ! grep -q '^MAIL_RELAY_TOKEN=' "${env_file}"; then
   echo "MAIL_RELAY_TOKEN=$(openssl rand -hex 32)" >> "${env_file}"
 fi
+if ! grep -q '^LOCAL_OCR_MODE=' "${env_file}"; then
+  echo "LOCAL_OCR_MODE=paddleocr" >> "${env_file}"
+  echo "已为旧配置启用本地 PaddleOCR。"
+fi
 
 docker compose --env-file "${env_file}" -f "${project_dir}/docker-compose.private.yml" up -d --build
 echo "KnowFlow 已启动：http://localhost:3000"
+echo "本地 OCR：PaddleOCR（企业文档默认走本机免费识别）"
 if [[ -n "${generated_password}" ]]; then
   echo "超级管理员：3037676975@qq.com"
   echo "初始密码：${generated_password}"
