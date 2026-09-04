@@ -14,9 +14,9 @@ const benefits = [
 
 const conversations = [
   ["访客 · 北京", "产品功能介绍", "10:24", "AI", "blue", "/brand/visitor-male.jpg"],
-  ["访客 · 上海", "如何接入网站客服？", "10:22", "人工", "orange", "/brand/visitor-female.jpg"],
+  ["访客 · 上海", "如何接入网站客服？", "10:22", "人工", "orange", "/brand/visitor-female-v3.jpg"],
   ["访客 · 广州", "价格与套餐说明", "10:18", "AI", "blue", "/brand/visitor-male.jpg"],
-  ["访客 · 深圳", "售后与技术支持", "10:16", "人工", "orange", "/brand/visitor-female.jpg"],
+  ["访客 · 深圳", "售后与技术支持", "10:16", "人工", "orange", "/brand/visitor-female-v3.jpg"],
 ] as const;
 
 const stats = [
@@ -83,7 +83,7 @@ export default async function Page() {
           <div className={styles.heroAside} aria-hidden="true">
             <div className={styles.glowOne}/><div className={styles.glowTwo}/>
             <div className={styles.agentCard}>
-              <img src="/brand/support-agent.jpg" alt="真人客服"/>
+              <img src="/brand/support-agent-v3.jpg" alt="真人客服"/>
               <div><small>人工客服在线</small><b>平均 45 秒接入</b></div>
               <span>● 在线</span>
             </div>
