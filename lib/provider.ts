@@ -56,7 +56,7 @@ export function normalizeTencentOcrBaseUrl(value: string) {
 export function normalizeSelfHostedBaseUrl(value: string, label: string) {
   const url = new URL(value.trim());
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  const localService = getRuntime().APP_ENV === "local" && ["embedding", "document-parser", "localhost", "127.0.0.1"].includes(hostname);
+  const localService = getRuntime().APP_ENV === "local" && ["embedding", "document-parser", "paddleocr", "localhost", "127.0.0.1"].includes(hostname);
   if (localService) {
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error(`${label}本地服务地址无效`);
     return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
@@ -73,6 +73,39 @@ export function normalizeSelfHostedBaseUrl(value: string, label: string) {
 
 export async function loadProviderConfig(tenantId: string, kind: ProviderKind): Promise<StoredProviderConfig | null> {
   const runtime = getRuntime();
+
+  // Private/self-hosted Project4 deployments use the built-in PaddleOCR
+  // container for real tenant documents by default. Platform admins can still
+  // save and test Tencent/Baidu credentials independently. Set
+  // LOCAL_OCR_MODE=platform to route tenant OCR back through the platform cloud
+  // provider. Reusing PARSER_API_KEY keeps the internal OCR API off the public
+  // internet and avoids storing another secret.
+  if (
+    kind === "ocr"
+    && Boolean(tenantId)
+    && runtime.APP_ENV === "local"
+    && (runtime.LOCAL_OCR_MODE || "paddleocr") === "paddleocr"
+    && runtime.PARSER_API_KEY
+  ) {
+    return {
+      id: "builtin_paddleocr",
+      kind: "ocr",
+      provider: "docling",
+      baseUrl: "http://paddleocr:8002",
+      model: "PP-OCRv6",
+      secondaryModel: null,
+      dimensions: null,
+      apiKey: runtime.PARSER_API_KEY,
+      keyHint: "内置本地服务",
+      credentialId: null,
+      credentialIdHint: null,
+      region: null,
+      reuseApiKeyFrom: null,
+      candidateCount: null,
+      topN: null,
+    };
+  }
+
   let scope: "platform" | "tenant" = "platform";
   let row = await runtime.DB.prepare(`SELECT ${PROVIDER_SELECT_COLUMNS}
     FROM platform_provider_configs WHERE kind = ? AND status = 'active' LIMIT 1`)
