@@ -5,11 +5,36 @@ import styles from "./homepage.module.css";
 
 export const dynamic = "force-dynamic";
 
+type UiIconName = "sparkles" | "clock" | "zap" | "handoff" | "chart" | "dashboard" | "messages" | "arrow-right";
+
+function UiIcon({ name, size = 16 }: { name: UiIconName; size?: number }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.9,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  if (name === "sparkles") return <svg {...common}><path d="M12 3.5 13.4 7.6 17.5 9l-4.1 1.4L12 14.5l-1.4-4.1L6.5 9l4.1-1.4L12 3.5Z"/><path d="m18.5 14 .7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7.7-2.1Z"/></svg>;
+  if (name === "clock") return <svg {...common}><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/></svg>;
+  if (name === "zap") return <svg {...common}><path d="m13.2 2.8-7 10.1h5.3l-.7 8.3 7-10.1h-5.3l.7-8.3Z"/></svg>;
+  if (name === "handoff") return <svg {...common}><path d="M7.5 10.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M2.8 18.8c.5-3 2.2-4.8 4.7-4.8 1.6 0 2.9.7 3.7 1.8"/><path d="M14 8.5h6.5M18.2 5.8l2.7 2.7-2.7 2.7"/><path d="M16.5 15.5h-6.2M12.7 12.8 10 15.5l2.7 2.7"/></svg>;
+  if (name === "chart") return <svg {...common}><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 3.2-3.4 3 1.8L18 8"/><path d="M15.5 8H18v2.5"/></svg>;
+  if (name === "dashboard") return <svg {...common}><rect x="3" y="3" width="7" height="7" rx="1.4"/><rect x="14" y="3" width="7" height="7" rx="1.4"/><rect x="3" y="14" width="7" height="7" rx="1.4"/><rect x="14" y="14" width="7" height="7" rx="1.4"/></svg>;
+  if (name === "messages") return <svg {...common}><path d="M7.5 16.5H5l-2 2v-11A3.5 3.5 0 0 1 6.5 4h8A3.5 3.5 0 0 1 18 7.5v2"/><path d="M11 13.5A3.5 3.5 0 0 1 14.5 10h3A3.5 3.5 0 0 1 21 13.5v5l-2-2h-4.5a3.5 3.5 0 0 1-3.5-3.5v.5Z"/></svg>;
+  return <svg {...common}><path d="M5 12h14"/><path d="m14 7 5 5-5 5"/></svg>;
+}
+
 const benefits = [
-  ["7×24 小时在线", "全时段智能响应", "✦"],
-  ["高效解决问题", "平均响应时间 < 3s", "◷"],
-  ["无缝转人工", "复杂问题一键转接", "↗"],
-  ["数据驱动优化", "会话分析持续改进", "⌁"],
+  ["7×24 小时在线", "全时段智能响应", "clock"],
+  ["高效解决问题", "平均响应时间 < 3s", "zap"],
+  ["无缝转人工", "复杂问题一键转接", "handoff"],
+  ["数据驱动优化", "会话分析持续改进", "chart"],
 ] as const;
 
 const conversations = [
@@ -21,7 +46,7 @@ const conversations = [
 
 const stats = [
   ["会话总数", "1,285", "+18%"],
-  ["AI 解决率", "68%", "+12%"],
+  ["AI 解决率", "98%", "+12%"],
   ["平均响应", "2.8s", "-8%"],
   ["转人工率", "18%", "-6%"],
 ] as const;
@@ -68,15 +93,15 @@ export default async function Page() {
       <section className={styles.hero}>
         <div className={styles.heroGrid}>
           <div className={styles.heroCopy}>
-            <div className={styles.eyebrow}><span>✦</span> 新一代 AI 客服平台，让服务更高效</div>
+            <div className={styles.eyebrow}><span><UiIcon name="sparkles" size={14}/></span> 新一代 AI 客服平台，让服务更高效</div>
             <h1>AI 客服 + 人工接待<br/><span>懂业务的智能客服</span></h1>
             <p>KnowFlow 把企业知识库、FAQ、网站客服、人工接待与服务分析放进同一条链路。AI 负责高频问题，复杂咨询无缝转人工，让每一次服务都更专业、更有温度。</p>
             <div className={styles.heroActions}>
-              <Link href={primaryHref} className={styles.primaryButton}>{primaryLabel}<b>→</b></Link>
-              <a href="#product" className={styles.secondaryButton}>查看客服工作台</a>
+              <Link href={primaryHref} className={styles.primaryButton}><UiIcon name="dashboard" size={16}/>{primaryLabel}<b><UiIcon name="arrow-right" size={15}/></b></Link>
+              <a href="#product" className={styles.secondaryButton}><UiIcon name="messages" size={16}/>查看客服工作台</a>
             </div>
             <div className={styles.benefitRow}>
-              {benefits.map(([title, desc, icon]) => <div key={title}><span>{icon}</span><section><b>{title}</b><small>{desc}</small></section></div>)}
+              {benefits.map(([title, desc, icon]) => <div key={title}><span><UiIcon name={icon} size={17}/></span><section><b>{title}</b><small>{desc}</small></section></div>)}
             </div>
           </div>
 
@@ -87,7 +112,7 @@ export default async function Page() {
               <div><small>人工客服在线</small><b>平均 45 秒接入</b></div>
               <span>● 在线</span>
             </div>
-            <div className={styles.floatCard}><b>AI 解决率</b><strong>68%</strong><small>今日实时统计</small></div>
+            <div className={styles.floatCard}><b>AI 解决率</b><strong>98%</strong><small>今日实时统计</small></div>
           </div>
         </div>
 
