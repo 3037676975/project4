@@ -18,6 +18,7 @@ export type RuntimeBindings = {
   QDRANT_COLLECTION?: string;
   QDRANT_VECTOR_SIZE?: string;
   APP_ENV?: "local" | "production";
+  LOCAL_OCR_MODE?: "paddleocr" | "platform";
   LOCAL_AUTH_EMAIL?: string;
   LOCAL_AUTH_NAME?: string;
   LOCAL_ADMIN_PASSWORD?: string;
