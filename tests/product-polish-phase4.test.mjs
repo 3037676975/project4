@@ -25,7 +25,7 @@ test('human handoff notice is not repeated for every visitor message', () => {
 
 test('homepage presents the current customer-service product instead of a demo landing page', () => {
   const page = read('app/page.tsx');
-  for (const copy of ['人工客服 Inbox', '网站客服 Widget', '人工接管', 'Trace 与服务分析', '行业场景', '运营价值']) {
+  for (const copy of ['人工客服 Inbox', '网站客服 Widget', '人工接管', 'Trace 与服务分析', '电商售后', '运营价值']) {
     assert.ok(page.includes(copy), `missing ${copy}`);
   }
   assert.match(page, /support-agent\.jpg/);
