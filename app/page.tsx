@@ -6,20 +6,44 @@ import styles from "./homepage.module.css";
 export const dynamic = "force-dynamic";
 
 const capabilities = [
-  ["AI 先接待", "FAQ 与企业知识库优先回答，低置信度不强答，把重复问题挡在人工之前。", "01", "AI"],
-  ["人工无缝接管", "访客不用换窗口。转人工后直接进入待接待队列，客服回复实时回到原会话。", "02", "↔"],
-  ["实时客服 Inbox", "未读、待接待、我的会话、访客画像、附件与 SLA 集中在一张工作台。", "03", "▦"],
-  ["报表与 Trace", "解决率、转人工率、首响时间、模型调用与 RAG 链路都能回看和定位。", "04", "⌁"],
+  {
+    mark: "01",
+    icon: "AI",
+    title: "AI 先接待，答案有依据",
+    description: "FAQ、企业知识库和 RAG 统一进入一条回答链路。低置信度不硬答，回答可回看来源和 Trace。",
+    detail: "RAG · FAQ · 引用来源",
+  },
+  {
+    mark: "02",
+    icon: "↗",
+    title: "无缝转人工，不丢上下文",
+    description: "访客不用换窗口。AI 处理不了的咨询直接进入客服工作台，人工继续同一段会话。",
+    detail: "Handoff · Inbox · SLA",
+  },
+  {
+    mark: "03",
+    icon: "◎",
+    title: "把服务过程变成可运营的数据",
+    description: "会话、未解决问题、模型调用、人工接待和线索都能被追踪，不再只看一个聊天窗口。",
+    detail: "Analytics · Trace · Leads",
+  },
+  {
+    mark: "04",
+    icon: "◇",
+    title: "支持 Docker 私有化部署",
+    description: "业务应用、向量库和模型服务可以按资源拆分，适合企业内网、独立服务器和混合部署。",
+    detail: "Docker · Qdrant · API",
+  },
 ] as const;
 
 const scenarios = [
-  ["电商售后", "物流、退款、发票等标准问题先由 AI 处理，复杂售后自动交给人工。", "售后服务"],
-  ["SaaS 售前", "基于产品文档回答功能与套餐问题，并把高意向咨询沉淀为可跟进线索。", "售前转化"],
-  ["教育咨询", "课程、开班、报名政策统一口径，人工坐席专注关键决策和成交。", "咨询接待"],
-  ["企业内部服务", "制度、流程、产品手册进入统一知识库，减少重复内部问答。", "内部支持"],
+  ["SaaS 售前", "让 AI 先回答产品、套餐和接入问题，高意向咨询自动沉淀为销售线索。", "售前转化"],
+  ["电商售后", "物流、退款、发票等高频问题先自动处理，复杂售后再转人工。", "售后服务"],
+  ["企业知识服务", "制度、流程、产品手册统一进入知识库，减少内部重复问答。", "内部支持"],
+  ["教育与咨询", "课程、报名、政策问题统一口径，人工把时间留给真正需要沟通的客户。", "咨询接待"],
 ] as const;
 
-const trustItems = ["多租户隔离", "FAQ 优先", "人工兜底", "会话可追踪", "数据可导出", "Docker 私有化"] as const;
+const trustItems = ["多租户隔离", "来源可追溯", "人工可接管", "数据可导出", "Docker 私有化", "API 可集成"] as const;
 
 export default async function Page() {
   const account = await optionalAccount();
@@ -28,94 +52,289 @@ export default async function Page() {
   const primaryHref = account ? consoleHref : "/register";
   const primaryLabel = account ? "进入控制台" : "免费开始";
 
-  return <main className={styles.page}>
-    <header className={styles.navWrap}>
-      <div className={styles.nav}>
-        <Link href="/" className={styles.brand} aria-label="KnowFlow 首页">
-          <span>K</span><div><b>KnowFlow</b><small>AI CUSTOMER SERVICE</small></div>
-        </Link>
-        <nav aria-label="官网导航">
-          <a href="#inbox">客服中心</a><a href="#widget">网站客服</a><a href="#operations">运营价值</a><a href="#scenarios">行业场景</a><a href="#security">安全部署</a>
-        </nav>
-        <div className={styles.navActions}><Link href={consoleHref} className={styles.login}>{account ? "返回后台" : "登录"}</Link><Link href={primaryHref} className={`${styles.primaryButton} ${styles.smallButton}`}>{primaryLabel}</Link></div>
-      </div>
-    </header>
+  return (
+    <main className={styles.page}>
+      <header className={styles.navWrap}>
+        <div className={styles.nav}>
+          <Link href="/" className={styles.brand} aria-label="KnowFlow 首页">
+            <span className={styles.brandMark}>K</span>
+            <span className={styles.brandText}>
+              <b>KnowFlow</b>
+              <small>AI Customer Service</small>
+            </span>
+          </Link>
 
-    <section className={styles.hero}>
-      <div className={styles.heroGlowOne}/><div className={styles.heroGlowTwo}/>
-      <div className={styles.heroCopy}>
-        <div className={styles.badge}><i/> AI 客服 + 人工接待 + 运营分析</div>
-        <h1>把每一次官网咨询，变成<br/><span>可接待、可转人工、可复盘</span>的服务。</h1>
-        <p>KnowFlow 把企业知识库、FAQ、网站客服 Widget、人工客服 Inbox、访客画像、报表与 Trace 放进同一条服务链路，让 AI 真正进入业务，而不是停留在演示聊天框。</p>
-        <div className={styles.heroActions}><Link href={primaryHref} className={styles.primaryButton}>{primaryLabel}<b>→</b></Link><a href="#inbox" className={styles.secondaryButton}>查看客服工作台</a></div>
-        <div className={styles.heroTrust}>{trustItems.slice(0,4).map((item) => <span key={item}><i>✓</i>{item}</span>)}</div>
-      </div>
+          <nav className={styles.navLinks} aria-label="官网导航">
+            <a href="#capabilities">产品能力</a>
+            <a href="#workflow">服务链路</a>
+            <a href="#widget">网站客服</a>
+            <a href="#scenarios">行业场景</a>
+            <a href="#security">安全部署</a>
+          </nav>
 
-      <div className={styles.productShell} id="inbox" aria-label="KnowFlow 实时客服 Inbox 产品界面示意">
-        <div className={styles.browserBar}><div><i/><i/><i/></div><span>app.knowflow.ai / customer-service</span><em>客服中心</em></div>
-        <div className={styles.productTopbar}><div><span className={styles.miniBrand}>K</span><section><b>实时客服 Inbox</b><small>AI 与人工共享同一会话上下文</small></section></div><nav><span><i/> 2 位客服在线</span><button>+ 新建客服规则</button></nav></div>
-        <div className={styles.serviceDesk}>
-          <aside className={styles.queue}>
-            <header><div><b>会话</b><small>今天</small></div><span>4</span></header>
-            <div className={styles.queueTabs}><button className={styles.activeTab}>待接待 1</button><button>未读 3</button><button>我的</button></div>
-            <div className={`${styles.queueItem} ${styles.activeQueue}`}><img src="/brand/visitor-avatar.svg" alt=""/><section><b>产品咨询</b><p>这个套餐支持人工客服吗？</p><small>官网价格页 · 刚刚</small></section><em>2</em></div>
-            <div className={styles.queueItem}><span className={`${styles.queueAvatar} ${styles.purple}`}>林</span><section><b>售后咨询</b><p>退款多久可以到账？</p><small>帮助中心 · 6 分钟前</small></section></div>
-            <div className={styles.queueItem}><span className={`${styles.queueAvatar} ${styles.green}`}>陈</span><section><b>API 接入</b><p>可以接到我们的官网吗？</p><small>官网首页 · 12 分钟前</small></section></div>
-            <footer><span><i/>坐席在线</span><b>平均首响实时统计</b></footer>
-          </aside>
+          <div className={styles.navActions}>
+            <Link href={consoleHref} className={styles.loginLink}>{account ? "返回后台" : "登录"}</Link>
+            <Link href={primaryHref} className={styles.navCta}>{primaryLabel}<span>↗</span></Link>
+          </div>
+        </div>
+      </header>
 
-          <section className={styles.chatPanel}>
-            <header><div><img src="/brand/visitor-avatar.svg" alt=""/><section><b>网页访客 #A318</b><small>上海 · 官网价格页 · 第 3 次访问</small></section></div><div className={styles.chatHeaderActions}><span>人工接待中</span><button>···</button></div></header>
-            <div className={styles.messages}>
-              <div className={styles.timeLine}><span/>今天 10:32<span/></div>
-              <article className={styles.userMessage}>这个套餐支持人工客服吗？</article>
-              <article className={styles.aiMessage}><span className={styles.aiAvatar}>AI</span><div><p>支持。AI 会先根据企业 FAQ 和知识库回答；需要人工时，可以直接进入客服工作台继续处理。</p><small>✓ FAQ 命中 · 无需调用大模型</small></div></article>
-              <div className={styles.handoff}><span/>已由客服「小周」接管<span/></div>
-              <article className={styles.agentMessage}><img src="/brand/support-agent.svg" alt=""/><div><b>小周 · 客服</b><p>你好，我可以继续帮你确认坐席数量、价格和网站接入方式。</p></div></article>
+      <section className={styles.hero}>
+        <div className={styles.heroGlowOne} />
+        <div className={styles.heroGlowTwo} />
+        <div className={styles.heroGrid}>
+          <div className={styles.heroCopy}>
+            <div className={styles.eyebrow}><span>NEW</span> AI 客服 · 人工接待 · RAG · 运营分析</div>
+            <h1>让 AI 接住咨询，<br /><em>让人工只处理真正重要的问题。</em></h1>
+            <p className={styles.heroLead}>KnowFlow 把企业知识库、AI 客服、人工 Inbox、访客画像、Trace 和运营数据放进同一条服务链路。不是一个“能聊天的 Demo”，而是一套可以真正接待客户的 AI 客服系统。</p>
+
+            <div className={styles.heroActions}>
+              <Link href={primaryHref} className={styles.primaryButton}>{primaryLabel}<span>→</span></Link>
+              <a href="#product-preview" className={styles.secondaryButton}>查看产品界面</a>
             </div>
-            <footer className={styles.composer}><button>＋</button><div>输入回复，Enter 发送…</div><span>⌘ Enter</span><button className={styles.sendButton}>↑</button></footer>
-          </section>
 
-          <aside className={styles.profile}>
-            <header><img src="/brand/visitor-avatar.svg" alt=""/><b>网页访客 #A318</b><span>正在浏览价格页</span></header>
-            <section className={styles.profileBlock}><small>访客画像</small><dl><div><dt>来源</dt><dd>官网价格页</dd></div><div><dt>地区</dt><dd>上海</dd></div><div><dt>历史会话</dt><dd>3 次</dd></div><div><dt>当前模式</dt><dd className={styles.onlineText}>人工接待</dd></div></dl></section>
-            <section className={styles.profileBlock}><small>本次关注</small><div className={styles.tags}><span>套餐价格</span><span>坐席数量</span><span>网站接入</span></div></section>
-            <section className={styles.profileBlock}><small>客服动作</small><button className={styles.profileAction}>转为线索 <b>→</b></button><button className={styles.profileAction}>查看 Trace <b>→</b></button></section>
-          </aside>
+            <div className={styles.heroSignals}>
+              <div><b>AI + Human</b><span>同一会话上下文</span></div>
+              <div><b>RAG First</b><span>企业知识优先回答</span></div>
+              <div><b>Private Ready</b><span>支持私有化部署</span></div>
+            </div>
+          </div>
+
+          <div className={styles.heroVisual} id="product-preview" aria-label="KnowFlow 客服工作台界面示意">
+            <div className={styles.visualAura} />
+            <div className={styles.productWindow}>
+              <div className={styles.windowTopbar}>
+                <div className={styles.windowDots}><i /><i /><i /></div>
+                <span className={styles.windowAddress}>app.knowflow.ai / inbox</span>
+                <span className={styles.windowStatus}><i /> Live</span>
+              </div>
+
+              <div className={styles.productBody}>
+                <aside className={styles.productSidebar}>
+                  <div className={styles.productLogo}>K</div>
+                  <div className={`${styles.sideIcon} ${styles.sideIconActive}`}>⌁</div>
+                  <div className={styles.sideIcon}>▦</div>
+                  <div className={styles.sideIcon}>◇</div>
+                  <div className={styles.sideIcon}>◎</div>
+                  <div className={styles.sideSpacer} />
+                  <div className={styles.sideAvatar}>周</div>
+                </aside>
+
+                <aside className={styles.conversationList}>
+                  <div className={styles.listHeader}>
+                    <div><span>INBOX</span><b>实时会话</b></div>
+                    <em>4</em>
+                  </div>
+                  <div className={styles.listTabs}><span className={styles.listTabActive}>待处理</span><span>我的</span><span>全部</span></div>
+
+                  <article className={`${styles.conversationItem} ${styles.conversationItemActive}`}>
+                    <span className={styles.customerAvatar}>访</span>
+                    <div><b>产品咨询</b><p>这个套餐支持人工客服吗？</p><small>官网价格页 · 刚刚</small></div>
+                    <em>2</em>
+                  </article>
+                  <article className={styles.conversationItem}>
+                    <span className={`${styles.customerAvatar} ${styles.avatarPurple}`}>林</span>
+                    <div><b>售后咨询</b><p>退款多久可以到账？</p><small>帮助中心 · 6 分钟前</small></div>
+                  </article>
+                  <article className={styles.conversationItem}>
+                    <span className={`${styles.customerAvatar} ${styles.avatarMint}`}>陈</span>
+                    <div><b>API 接入</b><p>可以接到我们官网吗？</p><small>官网首页 · 12 分钟前</small></div>
+                  </article>
+                </aside>
+
+                <section className={styles.chatWorkspace}>
+                  <header className={styles.chatHeader}>
+                    <div>
+                      <span className={styles.chatAvatar}>访</span>
+                      <div><b>网页访客 #A318</b><small>上海 · 官网价格页 · 第 3 次访问</small></div>
+                    </div>
+                    <span className={styles.humanBadge}>人工接待中</span>
+                  </header>
+
+                  <div className={styles.chatMessages}>
+                    <div className={styles.chatDate}>今天 10:32</div>
+                    <div className={styles.visitorBubble}>这个套餐支持人工客服吗？</div>
+                    <div className={styles.aiReply}>
+                      <span>AI</span>
+                      <div><p>支持。AI 会先根据企业 FAQ 和知识库回答，需要人工时可以直接转入客服工作台。</p><small>✓ FAQ 命中 · 有依据回答</small></div>
+                    </div>
+                    <div className={styles.handoffLine}><span /> 已由客服「小周」接管 <span /></div>
+                    <div className={styles.agentReply}>
+                      <span>周</span>
+                      <div><b>小周 · 客服</b><p>你好，我可以继续帮你确认坐席数量、价格和网站接入方式。</p></div>
+                    </div>
+                  </div>
+
+                  <div className={styles.chatComposer}>
+                    <span>＋</span><p>输入回复，Enter 发送…</p><button>↑</button>
+                  </div>
+                </section>
+
+                <aside className={styles.insightPanel}>
+                  <div className={styles.insightHero}>
+                    <span className={styles.insightAvatar}>访</span>
+                    <b>网页访客 #A318</b>
+                    <small><i /> 正在浏览价格页</small>
+                  </div>
+                  <div className={styles.insightBlock}>
+                    <span>本次关注</span>
+                    <div className={styles.tagRow}><i>套餐价格</i><i>网站接入</i><i>人工客服</i></div>
+                  </div>
+                  <div className={styles.insightBlock}>
+                    <span>AI 判断</span>
+                    <div className={styles.scoreCard}><b>高意向</b><em>82</em></div>
+                  </div>
+                  <div className={styles.insightBlock}>
+                    <span>下一步</span>
+                    <div className={styles.nextAction}>转为销售线索 <b>→</b></div>
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section className={styles.trustStrip}>{trustItems.map((item) => <span key={item}><i>✓</i>{item}</span>)}</section>
+      <section className={styles.trustBand} aria-label="产品能力摘要">
+        <div>{trustItems.map((item) => <span key={item}><i>✓</i>{item}</span>)}</div>
+      </section>
 
-    <section className={styles.section}>
-      <div className={styles.sectionHeading}><div><p>ONE SERVICE DESK</p><h2>一张客服工作台，接住从 AI 到人工的完整服务流程。</h2></div><p>成熟客服系统的关键不是“功能多”，而是访客、会话、知识、人工坐席和运营数据围绕同一件事工作。KnowFlow 把这些入口放回一条真正能落地的业务链路。</p></div>
-      <div className={styles.capabilityGrid}>{capabilities.map(([title,desc,no,icon]) => <article key={title}><div><span>{icon}</span><small>{no}</small></div><h3>{title}</h3><p>{desc}</p><a href="#operations">了解能力 <b>→</b></a></article>)}</div>
-    </section>
-
-    <section className={styles.widgetSection} id="widget">
-      <div className={styles.widgetInner}>
-        <div className={styles.widgetCopy}><p>WEBSITE WIDGET</p><h2>把客服能力放到商户官网右下角，而不是再放一个“AI 演示框”。</h2><p>访客无需登录。AI 先答，没解决就进入人工队列；图片、文件、离线邮箱和历史上下文继续沿用同一会话。</p><ul><li>AI / 人工状态始终可见</li><li>FAQ 与知识库优先回答</li><li>图片 / PDF / Office 文件可发送</li><li>访客离开后支持邮件继续跟进</li></ul><Link href={primaryHref} className={styles.lightButton}>配置网站客服 <b>→</b></Link></div>
-        <div className={styles.widgetVisual}>
-          <div className={styles.fakeWebsite}><header><span>ACME</span><nav>产品　定价　文档　联系</nav></header><main><small>PRODUCT SUPPORT</small><h3>复杂咨询，<br/>交给专业服务。</h3><p>AI 负责高频问题，人工负责关键客户。</p></main></div>
-          <div className={styles.miniWidget}><header><img src="/brand/ai-orb.svg" alt=""/><div><b>产品售后助手</b><small><i/> AI 助手在线</small></div><span>企业专属</span></header><div className={styles.modeBar}><section><b>AI 托管</b><small>企业 FAQ 与知识库优先</small></section><button>转人工</button></div><main><article>你好，需要了解产品、套餐还是售后？</article><div>支持人工客服吗？</div><article><b>支持。</b> 需要时可以直接进入人工客服队列。</article></main><footer><button>＋</button><p>请输入您的问题…</p><button>↑</button></footer></div>
-          <div className={styles.widgetLauncher}><span>✦</span><div><b>在线客服</b><small>AI + 人工</small></div></div>
+      <section className={styles.section} id="capabilities">
+        <div className={styles.sectionIntro}>
+          <div>
+            <p>PRODUCT SYSTEM</p>
+            <h2>不是堆功能。<br />而是把客服业务重新连成一条线。</h2>
+          </div>
+          <p>从访客进入官网，到 AI 检索知识、回答问题、转人工、形成线索，再到运营复盘，每一步都围绕同一个客户会话发生。</p>
         </div>
-      </div>
-    </section>
 
-    <section className={styles.operations} id="operations">
-      <div className={styles.sectionHeading}><div><p>运营价值 · SERVICE OPERATIONS</p><h2>让商户看见 AI 到底解决了多少问题，人工接待得怎么样。</h2></div><p>不使用虚构客户数量或漂亮百分比。后台只展示由真实会话计算出来的解决率、转人工率、首次响应、模型调用与服务成本。</p></div>
-      <div className={styles.metricGrid}><article><span>AI 自动解决率</span><strong>实时统计</strong><small>AI / FAQ 成功解决 ÷ 总会话</small></article><article><span>平均首次响应</span><strong>实时统计</strong><small>进入人工队列 → 第一条人工回复</small></article><article><span>人工转接率</span><strong>实时统计</strong><small>进入人工模式的会话占比</small></article><article><span>单会话模型成本</span><strong>实时统计</strong><small>模型调用成本 ÷ 会话数</small></article></div>
-      <div className={styles.traceCard}><aside><header><b>Trace</b><span>实时</span></header><button className={styles.traceActive}>退款多久能到账？<small>刚刚</small></button><button>套餐支持多少坐席？<small>3 分钟</small></button><button>接口是否支持私有化？<small>8 分钟</small></button></aside><section><header><div><small>REQUEST TRACE</small><h3>退款多久能到账？</h3></div><span>✓ 成功</span></header><div className={styles.traceFlow}><article><span>01</span><b>RAG 检索</b><small>命中售后政策</small></article><i>→</i><article><span>02</span><b>Embedding</b><small>向量召回</small></article><i>→</i><article><span>03</span><b>Rerank</b><small>重排 Top 3</small></article><i>→</i><article><span>04</span><b>LLM</b><small>生成有依据回答</small></article></div><footer><span>来源可追溯</span><span>Token 可统计</span><span>成本可核算</span><span>错误可定位</span></footer></section></div>
-    </section>
+        <div className={styles.capabilityGrid}>
+          {capabilities.map((item, index) => (
+            <article key={item.title} className={`${styles.capabilityCard} ${index === 0 ? styles.capabilityFeatured : ""}`}>
+              <div className={styles.capabilityTop}><span>{item.icon}</span><em>{item.mark}</em></div>
+              <h3>{item.title}</h3>
+              <p>{item.description}</p>
+              <footer><span>{item.detail}</span><b>↗</b></footer>
+            </article>
+          ))}
+        </div>
+      </section>
 
-    <section className={styles.section} id="scenarios"><div className={styles.sectionHeading}><div><p>行业场景 · REAL USE CASES</p><h2>先解决真实业务，再谈 AI 技术名词。</h2></div><p>同一套客服底座可以按行业配置知识、FAQ、欢迎语、Widget 和人工接待规则，不需要每个客户重新开发一套系统。</p></div><div className={styles.scenarioGrid}>{scenarios.map(([title,desc,tag],index) => <article key={title}><div><span>0{index+1}</span><small>{tag}</small></div><h3>{title}</h3><p>{desc}</p><b>AI 先接待 <i>→</i> 人工兜底</b></article>)}</div></section>
+      <section className={styles.darkSection} id="workflow">
+        <div className={styles.darkGlow} />
+        <div className={styles.darkInner}>
+          <div className={styles.darkIntro}>
+            <p>HOW IT WORKS</p>
+            <h2>一条完整的 AI 客服服务链路。</h2>
+            <span>从用户提问到人工接管，每一步都可以被追踪、配置和复盘。</span>
+          </div>
 
-    <section className={styles.securitySection} id="security"><div><p>SECURITY & DEPLOYMENT</p><h2>数据、账号与客服会话，都在明确边界里。</h2><p>支持云端运行，也支持 Linux Docker 私有化。平台管理员、企业成员和网站访客使用不同权限与会话 Token，租户数据独立隔离。</p><div className={styles.securityTags}>{trustItems.map((item) => <span key={item}>✓ {item}</span>)}</div></div><aside><header><i/><i/><i/><b>knowflow / production</b></header><code><em>$</em> docker compose up -d</code><code><span>✓</span> knowflow&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; healthy</code><code><span>✓</span> qdrant&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; healthy</code><code><span>✓</span> email-relay&nbsp;&nbsp;&nbsp; healthy</code><footer>PRIVATE · MULTI-TENANT · AUDITABLE</footer></aside></section>
+          <div className={styles.workflow}>
+            <article><em>01</em><div className={styles.workflowIcon}>?</div><h3>访客提问</h3><p>官网 Widget、API 或其他渠道进入统一会话。</p></article>
+            <i className={styles.flowArrow}>→</i>
+            <article><em>02</em><div className={styles.workflowIcon}>R</div><h3>RAG 检索</h3><p>FAQ、知识库、向量召回和重排一起工作。</p></article>
+            <i className={styles.flowArrow}>→</i>
+            <article><em>03</em><div className={styles.workflowIcon}>AI</div><h3>可信回答</h3><p>有依据就回答，低置信度进入兜底策略。</p></article>
+            <i className={styles.flowArrow}>→</i>
+            <article><em>04</em><div className={styles.workflowIcon}>人</div><h3>人工接管</h3><p>上下文完整带入客服 Inbox，不让客户重复描述。</p></article>
+          </div>
 
-    <section className={styles.finalCta}><div><p>FROM KNOWLEDGE TO SERVICE</p><h2>让企业知识，真正变成可以交付的客服能力。</h2></div><Link href={primaryHref} className={styles.primaryButton}>{primaryLabel}<b>→</b></Link></section>
+          <div className={styles.darkFooterStrip}>
+            <span><i /> 全链路 Trace</span>
+            <span><i /> 会话历史</span>
+            <span><i /> 未解决问题</span>
+            <span><i /> 成本与质量</span>
+          </div>
+        </div>
+      </section>
 
-    <footer className={styles.footer}><Link href="/" className={styles.brand}><span>K</span><div><b>KnowFlow</b><small>AI CUSTOMER SERVICE</small></div></Link><p>企业知识库 · AI 客服 · 人工接待 · 运营分析</p><nav><Link href="/workspace/login">企业工作台</Link><Link href="/admin/login">内部运营</Link><Link href="/platform/login">平台管理</Link></nav><small>© 2026 KNOWFLOW</small></footer>
-  </main>;
+      <section className={styles.widgetSection} id="widget">
+        <div className={styles.widgetCopy}>
+          <p className={styles.kicker}>WEBSITE WIDGET</p>
+          <h2>把真正能工作的客服，放在官网右下角。</h2>
+          <p>用户不需要登录，也不需要跳到另一个页面。AI 先回答，处理不了就转人工；同一段会话继续保留上下文、来源和访客信息。</p>
+          <ul>
+            <li><span>01</span><div><b>默认在线</b><small>访客打开页面即可发起咨询</small></div></li>
+            <li><span>02</span><div><b>AI / 人工状态清晰</b><small>用户知道当前是谁在接待</small></div></li>
+            <li><span>03</span><div><b>企业知识优先</b><small>FAQ 与 RAG 先于通用回答</small></div></li>
+          </ul>
+          <Link href={primaryHref} className={styles.textLink}>配置网站客服 <span>→</span></Link>
+        </div>
+
+        <div className={styles.widgetStage}>
+          <div className={styles.stageGlow} />
+          <div className={styles.fakeSite}>
+            <header><b>Northstar</b><nav>产品　方案　资源　联系</nav></header>
+            <div><small>AI SERVICE PLATFORM</small><h3>服务客户，<br />不必从零开始。</h3><p>把高频问题交给 AI，把关键客户交给团队。</p></div>
+          </div>
+          <div className={styles.widgetMock}>
+            <header>
+              <span className={styles.widgetOrb}>✦</span>
+              <div><b>KnowFlow 智能客服</b><small><i /> AI 助手在线</small></div>
+              <em>×</em>
+            </header>
+            <div className={styles.widgetMode}><b>AI 接待</b><span>转人工</span></div>
+            <main>
+              <div className={styles.widgetAi}>你好，需要了解产品、套餐还是部署方案？</div>
+              <div className={styles.widgetUser}>支持私有化部署吗？</div>
+              <div className={styles.widgetAi}><b>支持。</b> 可以使用 Docker 私有化部署，并按资源拆分业务服务、向量库和模型服务。</div>
+            </main>
+            <footer><span>输入你的问题…</span><button>↑</button></footer>
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.section} id="scenarios">
+        <div className={styles.sectionIntro}>
+          <div><p>USE CASES</p><h2>不是只适合“客服部门”。</h2></div>
+          <p>任何需要大量重复解释、又不能牺牲准确性的业务，都可以把 KnowFlow 放到客户与团队之间。</p>
+        </div>
+        <div className={styles.scenarioGrid}>
+          {scenarios.map(([title, description, tag], index) => (
+            <article key={title}>
+              <span className={styles.scenarioNumber}>0{index + 1}</span>
+              <div><small>{tag}</small><h3>{title}</h3><p>{description}</p></div>
+              <b>↗</b>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className={styles.securitySection} id="security">
+        <div className={styles.securityCard}>
+          <div className={styles.securityCopy}>
+            <p>SECURITY & DEPLOYMENT</p>
+            <h2>数据边界、模型服务和部署方式，都由你决定。</h2>
+            <span>适合从 Demo 走向真实业务。平台支持多租户隔离、API 权限、审计、数据导出与 Docker 私有化部署。</span>
+            <Link href={primaryHref} className={styles.securityButton}>开始配置 <b>→</b></Link>
+          </div>
+          <div className={styles.securityGrid}>
+            <article><span>01</span><b>多租户隔离</b><p>知识、会话、成员和配置按企业隔离。</p></article>
+            <article><span>02</span><b>私有化部署</b><p>Docker、Qdrant 与模型服务可独立部署。</p></article>
+            <article><span>03</span><b>数据可迁移</b><p>关键业务数据支持导出、恢复和审计。</p></article>
+            <article><span>04</span><b>模型可配置</b><p>平台统一维护模型、Embedding 与 Rerank 服务。</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.finalCta}>
+        <div className={styles.finalGlow} />
+        <div>
+          <p>START WITH KNOWFLOW</p>
+          <h2>把你的企业知识，<br />变成真正能接待客户的 AI 服务能力。</h2>
+          <span>先从一个知识库、一个网站客服入口开始，再逐步接入人工、运营和更多渠道。</span>
+          <div className={styles.finalActions}>
+            <Link href={primaryHref} className={styles.finalPrimary}>{primaryLabel}<b>→</b></Link>
+            <Link href={consoleHref} className={styles.finalSecondary}>{account ? "返回后台" : "已有账号，去登录"}</Link>
+          </div>
+        </div>
+      </section>
+
+      <footer className={styles.footer}>
+        <div className={styles.footerBrand}><span>K</span><div><b>KnowFlow</b><small>AI Customer Service Platform</small></div></div>
+        <p>企业知识库 · AI 客服 · 人工接待 · RAG · 私有化部署</p>
+        <div><a href="#capabilities">产品能力</a><a href="#workflow">服务链路</a><a href="#security">安全部署</a></div>
+      </footer>
+    </main>
+  );
 }
