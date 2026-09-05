@@ -18,6 +18,11 @@ if [[ ! -x "${vinext}" ]]; then
   exit 69
 fi
 
+# Keep the production build on one source of truth for pricing, storage quota
+# and the official customer-service avatar. The transformer is idempotent and
+# fails the build if a future source change makes any required patch unsafe.
+node "${script_dir}/apply-enterprise-consistency-patch.mjs"
+
 echo "Running bounded vinext build..."
 timeout \
   --signal=TERM \
