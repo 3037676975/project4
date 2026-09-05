@@ -1,5 +1,4 @@
 <div align="center">
-  <img src="./public/brand/knowflow-mark.svg" width="92" alt="KnowFlow Logo" />
   <h1>KnowFlow · Project4</h1>
   <p><strong>Enterprise AI Customer Service & Knowledge Operations SaaS</strong></p>
   <p>面向真实企业场景的 AI 客服、RAG 知识库、客户运营、订阅计费与支付一体化平台</p>
