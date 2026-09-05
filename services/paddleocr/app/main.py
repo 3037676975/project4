@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from paddleocr import PaddleOCR
 
@@ -29,37 +30,48 @@ def require_auth(authorization: str | None) -> None:
 
 @lru_cache(maxsize=1)
 def get_ocr() -> PaddleOCR:
-    # PP-OCRv6 small is a good fit for the 8-core / 8-GB private server: much
-    # lighter than the medium/server tier while retaining better small-text
-    # accuracy than the tiny tier. Optional preprocessing models stay disabled.
+    # PaddlePaddle 3.3.x has a known CPU/PIR -> oneDNN regression that raises:
+    # ConvertPirAttribute2RuntimeAttribute not support
+    # [pir::ArrayAttribute<pir::DoubleAttribute>].  The crash happens only when
+    # real inference starts, so simply constructing PaddleOCR is not enough to
+    # prove the service is healthy.  Explicitly disable MKLDNN/oneDNN here; the
+    # 8-core CPU server is still fast enough for our single-concurrency OCR
+    # workload and correctness is more important than the small CPU speed-up.
     return PaddleOCR(
         ocr_version=OCR_MODEL_VERSION,
         text_detection_model_name=OCR_DET_MODEL,
         text_recognition_model_name=OCR_REC_MODEL,
         device="cpu",
+        enable_mkldnn=False,
         use_doc_orientation_classify=False,
         use_doc_unwarping=False,
         use_textline_orientation=False,
     )
 
 
+def inference_probe() -> None:
+    # Exercise the actual detection/recognition runtime during container
+    # startup.  This catches executor/backend errors that model construction
+    # alone cannot detect and prevents a false green health status.
+    image = np.full((96, 320, 3), 255, dtype=np.uint8)
+    image[26:70, 38:282] = 0
+    list(get_ocr().predict(image))
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global _engine_ready
-    # The old implementation returned HTTP 200 before model files were loaded.
-    # Automatic deployment therefore marked OCR healthy while the first real
-    # upload could still fail during model download/initialisation. Load the
-    # engine before the service becomes ready so health checks are meaningful.
     try:
         await asyncio.to_thread(get_ocr)
+        await asyncio.to_thread(inference_probe)
         _engine_ready = True
     except Exception as exc:
         _engine_ready = False
-        raise RuntimeError(f"PaddleOCR model initialisation failed: {exc}") from exc
+        raise RuntimeError(f"PaddleOCR inference self-test failed: {exc}") from exc
     yield
 
 
-app = FastAPI(title="KnowFlow PaddleOCR", version="1.2.0", lifespan=lifespan)
+app = FastAPI(title="KnowFlow PaddleOCR", version="1.3.0", lifespan=lifespan)
 
 
 def result_json(result: object) -> dict:
@@ -110,6 +122,8 @@ async def health(authorization: str | None = Header(default=None)):
         "detectionModel": OCR_DET_MODEL,
         "recognitionModel": OCR_REC_MODEL,
         "device": "cpu",
+        "mkldnn": False,
+        "inferenceSelfTest": True,
         "modelLoaded": True,
         "freeLocal": True,
     }
