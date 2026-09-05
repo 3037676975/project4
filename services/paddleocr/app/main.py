@@ -18,7 +18,7 @@ OCR_REC_MODEL = os.getenv("OCR_REC_MODEL", "PP-OCRv6_small_rec").strip() or "PP-
 MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", str(12 * 1024 * 1024)))
 MAX_CONCURRENCY = max(1, int(os.getenv("MAX_CONCURRENCY", "1")))
 OCR_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
-OFFICE_SUFFIXES = {str(value).lower() for value in doc2md_supported_formats()}
+OFFICE_SUFFIXES = {f".{str(value).lower().lstrip('.')}" for value in doc2md_supported_formats()}
 SUPPORTED_SUFFIXES = OCR_SUFFIXES | OFFICE_SUFFIXES
 _semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 _engine_ready = False
@@ -68,7 +68,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="KnowFlow PaddleOCR", version="1.4.0", lifespan=lifespan)
+app = FastAPI(title="KnowFlow PaddleOCR", version="1.4.1", lifespan=lifespan)
 
 
 def result_json(result: object) -> dict:
