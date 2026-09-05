@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./homepage-polish.css";
 import "./enterprise-fixes.css";
+import "./knowledge-v2.css";
 import "./widget-ratio-fix.css";
 import GlobalWidgetGate from "../components/global-widget-gate";
 import EnterpriseSync from "../components/enterprise-sync";
