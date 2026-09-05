@@ -27,7 +27,10 @@ export async function GET(request: Request) {
     const services: ServiceState[] = [
       { id: "embedding", name: "Embedding", status: embeddingReady ? "healthy" : embedding ? "degraded" : "stopped", detail: embeddingReady ? "硅基流动 · BAAI/bge-m3 · API 已配置" : "等待配置硅基流动 API Key" },
       { id: "rerank", name: "Rerank", status: rerankReady ? "healthy" : rerank ? "degraded" : "stopped", detail: rerankReady ? "硅基流动 · BAAI/bge-reranker-v2-m3" : "等待配置或复用 Embedding API Key" },
-      await jsonHealth("paddleocr", "PaddleOCR 本地免费 OCR", "http://paddleocr:8002/health", runtime.PARSER_API_KEY ? { Authorization: `Bearer ${runtime.PARSER_API_KEY}` } : {}, (data) => `${String(data.engine || "PaddleOCR")} · ${String(data.recognitionModel || "PP-OCRv6-small")} · CPU · 企业唯一 OCR`),
+      await jsonHealth("paddleocr", "PaddleOCR 本地免费 OCR", "http://paddleocr:8002/health", runtime.PARSER_API_KEY ? { Authorization: `Bearer ${runtime.PARSER_API_KEY}` } : {}, (data) => {
+        const officeFormats = Array.isArray(data.officeFormats) ? data.officeFormats.join("/") : ".docx/.xlsx/.pptx";
+        return `${String(data.engine || "PaddleOCR")} · ${String(data.recognitionModel || "PP-OCRv6-small")} · CPU · doc2md ${officeFormats}`;
+      }),
       await jsonHealth("qdrant", "向量数据库", `${(runtime.QDRANT_URL || "http://qdrant:6333").replace(/\/$/, "")}/collections`, runtime.QDRANT_API_KEY ? { "api-key": runtime.QDRANT_API_KEY } : {}, () => "Qdrant 集合服务正常"),
     ];
     return Response.json({ checkedAt: new Date().toISOString(), localOcrMode: "paddleocr", services });
