@@ -1,0 +1,88 @@
+/* Knowledge v2: keep the enterprise knowledge UI aligned with the private/local parser stack. */
+.knowledge-toolbar {
+  position: relative;
+  overflow: hidden;
+}
+
+.knowledge-toolbar::after {
+  content: "本地免费解析 · PaddleOCR PP-OCRv6 + doc2md · 图片 / 扫描 PDF 走 OCR，DOCX / XLSX / PPTX 直接转 Markdown";
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 11px 13px;
+  border: 1px solid #dce7ff;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f6f9ff 0%, #f8fbff 55%, #f6fbf8 100%);
+  color: #52617a;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.65;
+  box-sizing: border-box;
+}
+
+.knowledge-layout .form-card {
+  border-color: #e2e8f6;
+  box-shadow: 0 14px 36px rgba(58, 76, 118, .06);
+}
+
+.knowledge-layout .settings-form > label:nth-of-type(2) span {
+  font-size: 0;
+}
+
+.knowledge-layout .settings-form > label:nth-of-type(2) span::after {
+  content: "Office 文档由 doc2md 原生解析；只有图片和扫描 PDF 才调用 OCR";
+  font-size: 9px;
+}
+
+.ocr-capability-row {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px !important;
+}
+
+.ocr-capability-row span {
+  min-width: 0;
+  padding: 9px 10px !important;
+  border: 1px solid #e6ebf5;
+  border-radius: 10px;
+  background: #fbfcff;
+}
+
+.ocr-capability-row span:nth-child(4) {
+  font-size: 0 !important;
+}
+
+.ocr-capability-row span:nth-child(4)::after {
+  content: "OFFICE  Word / Excel / PPT";
+  color: inherit;
+  font-size: 9px;
+}
+
+.knowledge-layout .upload-zone::after {
+  content: "DOCX / XLSX / PPTX 使用 PaddleOCR doc2md，不加载额外视觉模型";
+  display: block;
+  margin-top: 7px;
+  color: #7d879a;
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+.knowledge-layout .category-workspace {
+  min-width: 0;
+}
+
+@media (min-width: 1120px) {
+  .knowledge-layout {
+    grid-template-columns: minmax(330px, .78fr) minmax(0, 1.55fr) !important;
+    align-items: start;
+  }
+}
+
+@media (max-width: 760px) {
+  .knowledge-toolbar::after {
+    font-size: 9px;
+  }
+  .ocr-capability-row {
+    grid-template-columns: 1fr !important;
+  }
+}
