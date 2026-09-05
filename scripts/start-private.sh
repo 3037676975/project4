@@ -24,7 +24,7 @@ const source = path.resolve("dist/server/wrangler.json");
 const target = process.env.RUNTIME_CONFIG;
 const config = JSON.parse(fs.readFileSync(source, "utf8"));
 const keys = [
-  "APP_ENV", "APP_BASE_URL",
+  "APP_ENV", "APP_BASE_URL", "LOCAL_OCR_MODE",
   "LOCAL_AUTH_EMAIL", "LOCAL_AUTH_NAME", "LOCAL_ADMIN_PASSWORD", "LOCAL_AUTH_SESSION_SECRET",
   "PLATFORM_ADMIN_EMAILS", "CONFIG_ENCRYPTION_KEY",
   "PARSER_API_KEY", "DEEPSEEK_API_KEY",
