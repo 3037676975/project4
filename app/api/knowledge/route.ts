@@ -18,6 +18,34 @@ const PARSER_EXTENSIONS = new Set(["pdf", "docx", "xlsx", "pptx", "png", "jpg", 
 function cleanName(value: string) { return value.trim().replace(/[\\/]+/g, "-").slice(0, 160) || "未命名知识文档"; }
 function extension(name: string) { return name.toLowerCase().split(".").pop() || ""; }
 
+function localOcrErrorMessage(error: unknown) {
+  const raw = error instanceof Error && error.message.trim() ? error.message.trim() : "未知错误";
+  return raw
+    .replace(/^Docling 服务/, "本地 PaddleOCR 服务")
+    .replace(/^Docling 没有提取到可用文字/, "本地 PaddleOCR 没有提取到可用文字")
+    .slice(0, 500);
+}
+
+async function parseTenantOcr(tenantId: string, file: File, mode: "auto" | "text" | "table") {
+  try {
+    const parsed = await parseDocumentWithConfiguredOcr(tenantId, file, mode);
+    if (!parsed) throw new Error("本地 PaddleOCR 未启动或内部鉴权不可用");
+    return parsed;
+  } catch (error) {
+    console.error("[knowflow-ocr] tenant upload inference failed", {
+      tenantId,
+      fileName: file.name,
+      fileSize: file.size,
+      mode,
+      error,
+    });
+    // This is an expected upstream OCR failure, not an unknown application
+    // crash. Mark it as a 422 so the UI receives the useful, sanitized reason
+    // instead of routeError's generic "服务暂时不可用" message.
+    throw Object.assign(new Error(`本地 PaddleOCR 实际识别失败：${localOcrErrorMessage(error)}`), { status: 422 });
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const context = await getOrCreateTenant(request); const url = new URL(request.url);
@@ -101,14 +129,12 @@ export async function POST(request: Request) {
           catch { extracted = ""; }
         } else extracted = "";
         if (extracted.replace(/\s/g, "").length < 30 || recognitionMode !== "auto") {
-          const parsed = await parseDocumentWithConfiguredOcr(context.tenantId, file, recognitionMode);
-          if (!parsed) return Response.json({ error: "这是扫描版 PDF，请先配置任一 OCR 服务。" }, { status: 422 });
+          const parsed = await parseTenantOcr(context.tenantId, file, recognitionMode);
           extracted = parsed.text; pageCount = parsed.pageCount ?? pageCount; ocrUsed = true; ocrEngine = parsed.engine;
         }
       } else if (TEXT_TYPES.has(mimeType) || TEXT_EXTENSIONS.has(ext)) extracted = new TextDecoder().decode(originalBytes);
       else {
-        const parsed = await parseDocumentWithConfiguredOcr(context.tenantId, file, recognitionMode);
-        if (!parsed) return Response.json({ error: "该文件需要 OCR 或文档解析服务，请先完成配置。" }, { status: 422 });
+        const parsed = await parseTenantOcr(context.tenantId, file, recognitionMode);
         extracted = parsed.text; pageCount = parsed.pageCount; ocrUsed = true; ocrEngine = parsed.engine;
       }
       if (!mimeType) mimeType = "application/octet-stream";
@@ -121,7 +147,12 @@ export async function POST(request: Request) {
       .bind(context.tenantId, kb.id, categoryId).first<{ max_position: number }>();
     const position = Number(last?.max_position ?? 0) + 1;
     const objectKey = `tenant/${context.tenantId}/kb/${kb.id}/category/${categoryId}/${id}/${encodeURIComponent(name)}`;
-    await runtime.BUCKET.put(objectKey, originalBytes, { httpMetadata: { contentType: mimeType } });
+    try {
+      await runtime.BUCKET.put(objectKey, originalBytes, { httpMetadata: { contentType: mimeType } });
+    } catch (error) {
+      console.error("[knowflow-storage] document upload failed after extraction", { tenantId: context.tenantId, objectKey, error });
+      return Response.json({ error: "OCR 已完成，但知识库原文件存储失败，请稍后重试。" }, { status: 503 });
+    }
     try {
       await runtime.DB.prepare(`INSERT INTO knowledge_documents
         (id, tenant_id, knowledge_base_id, category_id, position, name, mime_type, object_key, extracted_text, char_count,
@@ -133,14 +164,23 @@ export async function POST(request: Request) {
     try { indexing = await indexDocument({ tenantId: context.tenantId, knowledgeBaseId: kb.id, categoryId, documentId: id, text: extracted }); }
     catch (error) { await runtime.DB.prepare("UPDATE knowledge_documents SET index_status = 'failed', updated_at = ? WHERE tenant_id = ? AND knowledge_base_id = ? AND id = ?").bind(new Date().toISOString(), context.tenantId, kb.id, id).run(); indexing = { chunkCount: 0, indexed: false, model: null }; indexingWarning = `文档已保存，但向量化失败：${error instanceof Error ? error.message : "Embedding 服务异常"}`; }
     if (ocrUsed) {
-      const costMicros = await calculateOcrCost({ tenantId: context.tenantId, engine: `ocr:${ocrEngine || "configured"}`, pages: pageCount || 1 });
-      await runtime.DB.prepare(`INSERT INTO usage_records
-        (id, tenant_id, request_id, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, source_count, credits, cost_micros, status, created_at)
-        VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, 0, ?, 'success', ?)`)
-        .bind(crypto.randomUUID(), context.tenantId, `ocr_${id}`, `ocr:${ocrEngine || "configured"}`, pageCount || 1, costMicros, now).run();
+      // OCR usage telemetry must never turn a successfully imported document
+      // into a 500 response. Local PaddleOCR is free, so log best-effort only.
+      try {
+        const costMicros = await calculateOcrCost({ tenantId: context.tenantId, engine: `ocr:${ocrEngine || "configured"}`, pages: pageCount || 1 });
+        await runtime.DB.prepare(`INSERT INTO usage_records
+          (id, tenant_id, request_id, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, source_count, credits, cost_micros, status, created_at)
+          VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, 0, ?, 'success', ?)`)
+          .bind(crypto.randomUUID(), context.tenantId, `ocr_${id}`, `ocr:${ocrEngine || "configured"}`, pageCount || 1, costMicros, now).run();
+      } catch (error) {
+        console.error("[knowflow-ocr] usage telemetry failed after successful import", { tenantId: context.tenantId, documentId: id, error });
+      }
     }
     return Response.json({ document: { id, categoryId, position, name, mimeType, charCount: extracted.length, pageCount, status: "ready", indexStatus: indexing.chunkCount ? (indexing.indexed ? "indexed" : "needs_embedding") : "failed", chunkCount: indexing.chunkCount, ocrUsed, createdAt: now, builtIn: false }, warning: indexingWarning ?? (indexing.indexed ? null : "文档已保存；平台配置 Embedding 后会自动补齐向量索引。") }, { status: 201 });
-  } catch (error) { return routeError(error); }
+  } catch (error) {
+    console.error("[knowflow-knowledge] upload failed", error);
+    return routeError(error);
+  }
 }
 
 export async function DELETE(request: Request) {
