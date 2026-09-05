@@ -30,7 +30,12 @@ if [[ "$OCR_HEALTH" != *'"ok":true'* ]]; then
   echo "[verify] PaddleOCR 健康检查返回异常"
   exit 1
 fi
-echo "[verify] PaddleOCR: OK"
+if [[ "$OCR_HEALTH" != *'doc2md'* || "$OCR_HEALTH" != *'.docx'* || "$OCR_HEALTH" != *'.xlsx'* || "$OCR_HEALTH" != *'.pptx'* ]]; then
+  echo "[verify] PaddleOCR doc2md Office 能力未就绪"
+  echo "$OCR_HEALTH"
+  exit 1
+fi
+echo "[verify] PaddleOCR + doc2md: OK"
 
 if [[ -n "$QDRANT_KEY" ]]; then
   curl -fsS --max-time 8 -H "api-key: ${QDRANT_KEY}" http://127.0.0.1:6333/collections >/dev/null
