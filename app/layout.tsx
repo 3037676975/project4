@@ -7,6 +7,7 @@ import "./knowledge-v2.css";
 import "./widget-ratio-fix.css";
 import GlobalWidgetGate from "../components/global-widget-gate";
 import EnterpriseSync from "../components/enterprise-sync";
+import KnowledgeUiSync from "../components/knowledge-ui-sync";
 
 const geist = Geist({
   variable: "--font-geist-sans",
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body className={`${geist.variable} ${geistMono.variable}`}>
         {children}
         <EnterpriseSync />
+        <KnowledgeUiSync />
         <GlobalWidgetGate />
       </body>
     </html>
