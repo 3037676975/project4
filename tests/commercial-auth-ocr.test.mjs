@@ -79,7 +79,8 @@ test("private OCR is local-only, really infers, and surfaces upload failures", a
   assert.match(paddle, /lifespan/);
   assert.match(paddle, /PaddleOCR model is not ready/);
   assert.match(paddle, /freeLocal/);
-  assert.match(health, /企业唯一 OCR/);
+  assert.match(health, /PaddleOCR 本地免费 OCR/);
+  assert.match(health, /localOcrMode: "paddleocr"/);
   assert.match(testRoute, /OCR_SMOKE_TEST_PNG_BASE64/);
   assert.match(testRoute, /\/v1\/parse/);
   assert.match(testRoute, /本地 PaddleOCR 实际识别成功/);
