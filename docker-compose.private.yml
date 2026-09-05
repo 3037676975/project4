@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile.private
     environment:
       APP_ENV: local
-      LOCAL_OCR_MODE: paddleocr
+      LOCAL_OCR_MODE: ${LOCAL_OCR_MODE:-paddleocr}
       LOCAL_AUTH_EMAIL: ${LOCAL_AUTH_EMAIL:-admin@local.test}
       LOCAL_AUTH_NAME: ${LOCAL_AUTH_NAME:-本地管理员}
       LOCAL_ADMIN_PASSWORD: ${LOCAL_ADMIN_PASSWORD:?run scripts/init-private first}
@@ -29,14 +29,14 @@ services:
       EMAIL_CODE_RESEND_SECONDS: ${EMAIL_CODE_RESEND_SECONDS:-60}
       EMAIL_CODE_MAX_ATTEMPTS: ${EMAIL_CODE_MAX_ATTEMPTS:-5}
       EMAIL_CODE_LENGTH: ${EMAIL_CODE_LENGTH:-6}
-      APP_BASE_URL: http://186.244.245.177:28441
-      PAYMENT_MODE: sandbox
+      APP_BASE_URL: ${APP_BASE_URL:-http://186.244.245.177:28441}
+      PAYMENT_MODE: ${PAYMENT_MODE:-sandbox}
       PAYMENT_CALLBACK_SECRET: ${PAYMENT_CALLBACK_SECRET:?run scripts/init-private first}
       OPERATIONS_SWEEP_SECRET: ${OPERATIONS_SWEEP_SECRET:?run scripts/init-private first}
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:?run scripts/init-private first}
-      QDRANT_COLLECTION: knowflow_chunks
-      QDRANT_VECTOR_SIZE: "1024"
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-knowflow_chunks}
+      QDRANT_VECTOR_SIZE: ${QDRANT_VECTOR_SIZE:-1024}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
@@ -74,12 +74,12 @@ services:
       OCR_MODEL_VERSION: ${OCR_MODEL_VERSION:-PP-OCRv6}
       OCR_DET_MODEL: ${OCR_DET_MODEL:-PP-OCRv6_small_det}
       OCR_REC_MODEL: ${OCR_REC_MODEL:-PP-OCRv6_small_rec}
-      MAX_CONCURRENCY: "1"
-      MAX_FILE_BYTES: "12582912"
+      MAX_CONCURRENCY: ${OCR_MAX_CONCURRENCY:-1}
+      MAX_FILE_BYTES: ${OCR_MAX_FILE_BYTES:-12582912}
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       PADDLE_PDX_MODEL_SOURCE: ${PADDLE_PDX_MODEL_SOURCE:-bos}
-      OMP_NUM_THREADS: "4"
-      MKL_NUM_THREADS: "4"
+      OMP_NUM_THREADS: ${OCR_OMP_NUM_THREADS:-4}
+      MKL_NUM_THREADS: ${OCR_MKL_NUM_THREADS:-4}
     ports:
       - "127.0.0.1:8002:8002"
     restart: unless-stopped
