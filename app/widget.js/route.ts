@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   try { token = await createEmbedToken(assistant, embedOrigin); }
   catch { return javascript("console.error('KnowFlow: 当前网站域名不在客服白名单中');", 403); }
   const frameUrl = `${url.origin}/chat/${assistant.publicId}?token=${encodeURIComponent(token)}`;
-  const avatarUrl = `${url.origin}/brand/support-agent-v3.jpg`;
+  const avatarUrl = `${url.origin}/brand/support-agent.jpg`;
 
   return javascript(`(()=>{
     if(document.getElementById('knowflow-widget-root'))return;
